@@ -5,8 +5,8 @@ import os
 app = FastAPI()
 
 # Vul deze in via Railway → Variables
-TELEGRAM_TOKEN = os.getenv(8531261432:AAEMoMnUNOgfBHtWIaFZf8cb1ZnF9DMIKoA)
-CHAT_ID = os.getenv(1604766930)
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN") 
+CHAT_ID = os.getenv("CHAT_ID")
 
 @app.get("/")
 def home():
