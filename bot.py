@@ -110,7 +110,7 @@ async def list_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text)
 
 
-async def main():
+def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -119,9 +119,9 @@ async def main():
     app.add_handler(CommandHandler("deny", deny))
     app.add_handler(CommandHandler("list", list_members))
 
-    await app.run_polling()
+    app.run_polling()
 
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    main()
+
