@@ -1,5 +1,6 @@
 import os
 import json
+import threading
 import requests
 from fastapi import FastAPI, Request
 from telegram import Update
@@ -13,12 +14,14 @@ from telegram.ext import (
 # CONFIG
 # -----------------------------
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-ADMIN_CHAT_ID = int(os.getenv("CHAT_ID"))  # Jouw eigen chat ID
+ADMIN_CHAT_ID = int(os.getenv("CHAT_ID"))
 
 PENDING_FILE = "pending.json"
 APPROVED_FILE = "approved.json"
 
 app = FastAPI()
+telegram_app = None  # wordt later gevuld
+
 
 # -----------------------------
 # HELPERS
@@ -32,6 +35,7 @@ def load_list(filename):
 def save_list(filename, data):
     with open(filename, "w") as f:
         json.dump(data, f)
+
 
 # -----------------------------
 # BOT COMMANDS
@@ -51,11 +55,11 @@ async def register(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("Je registratie is ontvangen. Een admin zal je aanvraag beoordelen.")
 
-    # Meld aan admin
     await context.bot.send_message(
         ADMIN_CHAT_ID,
         f"Nieuwe registratie ontvangen:\nChat ID: {chat_id}"
     )
+
 
 async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != ADMIN_CHAT_ID:
@@ -80,6 +84,7 @@ async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("Deze gebruiker staat niet in de pending lijst.")
 
+
 async def deny(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != ADMIN_CHAT_ID:
         return
@@ -98,6 +103,7 @@ async def deny(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("Deze gebruiker staat niet in de pending lijst.")
 
+
 # -----------------------------
 # BROADCAST FUNCTION
 # -----------------------------
@@ -107,7 +113,8 @@ async def broadcast_alert(bot, message):
         try:
             await bot.send_message(user, message)
         except:
-            pass  # gebruiker blokkeerde bot of fout → negeren
+            pass
+
 
 # -----------------------------
 # FASTAPI ROUTES
@@ -116,37 +123,38 @@ async def broadcast_alert(bot, message):
 def home():
     return {"status": "running"}
 
+
 @app.post("/webhook")
 async def webhook(request: Request):
     data = await request.json()
     message = data.get("message", str(data))
 
-    # Stuur naar admin (optioneel)
+    # Stuur naar admin
     requests.post(
         f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
         json={"chat_id": ADMIN_CHAT_ID, "text": message}
     )
 
     # Broadcast naar members
-    await broadcast_alert(app.bot, message)
+    if telegram_app:
+        await broadcast_alert(telegram_app.bot, message)
 
     return {"status": "sent"}
 
+
 # -----------------------------
-# START TELEGRAM BOT
+# START TELEGRAM BOT IN THREAD
 # -----------------------------
-async def start_bot():
-    application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+def start_bot_thread():
+    global telegram_app
 
-    application.add_handler(CommandHandler("register", register))
-    application.add_handler(CommandHandler("approve", approve))
-    application.add_handler(CommandHandler("deny", deny))
+    telegram_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    app.bot = application.bot  # nodig voor webhook broadcast
+    telegram_app.add_handler(CommandHandler("register", register))
+    telegram_app.add_handler(CommandHandler("approve", approve))
+    telegram_app.add_handler(CommandHandler("deny", deny))
 
-    await application.initialize()
-    await application.start()
-    print("Telegram bot is gestart.")
+    telegram_app.run_polling()
 
-import asyncio
-asyncio.create_task(start_bot())
+
+threading.Thread(target=start_bot_thread, daemon=True).start()
