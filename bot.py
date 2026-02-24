@@ -110,6 +110,34 @@ async def list_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text)
 
 
+# -------------------------
+# ✔️ GECORRIGEERDE REMOVE FUNCTIE
+# -------------------------
+
+async def remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_CHAT_ID:
+        return await update.message.reply_text("Je bent geen admin.")
+
+    if len(context.args) != 1:
+        return await update.message.reply_text("Gebruik: /remove <chat_id>")
+
+    chat_id_to_remove = int(context.args[0])
+
+    approved = load_list(APPROVED_FILE)
+
+    if chat_id_to_remove not in approved:
+        return await update.message.reply_text("Dit ID staat niet in de lijst.")
+
+    approved.remove(chat_id_to_remove)
+    save_list(APPROVED_FILE, approved)
+
+    await update.message.reply_text(f"Chat ID {chat_id_to_remove} is verwijderd.")
+
+
+# -------------------------
+# MAIN
+# -------------------------
+
 def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
@@ -118,10 +146,10 @@ def main():
     app.add_handler(CommandHandler("approve", approve))
     app.add_handler(CommandHandler("deny", deny))
     app.add_handler(CommandHandler("list", list_members))
+    app.add_handler(CommandHandler("remove", remove))
 
     app.run_polling()
 
 
 if __name__ == "__main__":
     main()
-
