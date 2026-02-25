@@ -27,7 +27,9 @@ def save_list(filename, data):
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Welkom bij T‑School alerts. Gebruik /register om je aan te melden.")
+    await update.message.reply_text(
+        "Welcome to T‑School alerts. Use /register to sign up."
+    )
 
 
 async def register(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -36,18 +38,20 @@ async def register(update: Update, context: ContextTypes.DEFAULT_TYPE):
     approved = load_list(APPROVED_FILE)
 
     if chat_id in approved:
-        await update.message.reply_text("Je bent al goedgekeurd voor T‑School alerts.")
+        await update.message.reply_text("You are already approved for T‑School alerts.")
         return
 
     if chat_id not in pending:
         pending.append(chat_id)
         save_list(PENDING_FILE, pending)
 
-    await update.message.reply_text("Je registratie is ontvangen. Een admin zal je aanvraag beoordelen.")
+    await update.message.reply_text(
+        "Your registration has been received. An admin will review your request."
+    )
 
     await context.bot.send_message(
         ADMIN_CHAT_ID,
-        f"Nieuwe registratie ontvangen:\nChat ID: {chat_id}"
+        f"New registration received:\nChat ID: {chat_id}"
     )
 
 
@@ -56,7 +60,7 @@ async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if len(context.args) == 0:
-        await update.message.reply_text("Gebruik: /approve <chat_id>")
+        await update.message.reply_text("Usage: /approve <chat_id>")
         return
 
     chat_id = int(context.args[0])
@@ -70,10 +74,10 @@ async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_list(PENDING_FILE, pending)
         save_list(APPROVED_FILE, approved)
 
-        await update.message.reply_text(f"Gebruiker {chat_id} is goedgekeurd.")
-        await context.bot.send_message(chat_id, "Je bent goedgekeurd voor T‑School alerts!")
+        await update.message.reply_text(f"User {chat_id} has been approved.")
+        await context.bot.send_message(chat_id, "You have been approved for T‑School alerts!")
     else:
-        await update.message.reply_text("Deze gebruiker staat niet in de pending lijst.")
+        await update.message.reply_text("This user is not in the pending list.")
 
 
 async def deny(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -81,7 +85,7 @@ async def deny(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if len(context.args) == 0:
-        await update.message.reply_text("Gebruik: /deny <chat_id>")
+        await update.message.reply_text("Usage: /deny <chat_id>")
         return
 
     chat_id = int(context.args[0])
@@ -90,9 +94,9 @@ async def deny(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chat_id in pending:
         pending.remove(chat_id)
         save_list(PENDING_FILE, pending)
-        await update.message.reply_text(f"Gebruiker {chat_id} is geweigerd.")
+        await update.message.reply_text(f"User {chat_id} has been denied.")
     else:
-        await update.message.reply_text("Deze gebruiker staat niet in de pending lijst.")
+        await update.message.reply_text("This user is not in the pending list.")
 
 
 async def list_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -103,35 +107,35 @@ async def list_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
     approved = load_list(APPROVED_FILE)
 
     text = "Pending:\n"
-    text += "\n".join(str(x) for x in pending) or "– geen –"
+    text += "\n".join(str(x) for x in pending) or "– none –"
     text += "\n\nApproved:\n"
-    text += "\n".join(str(x) for x in approved) or "– geen –"
+    text += "\n".join(str(x) for x in approved) or "– none –"
 
     await update.message.reply_text(text)
 
 
 # -------------------------
-# ✔️ GECORRIGEERDE REMOVE FUNCTIE
+# REMOVE FUNCTION (ENGLISH VERSION)
 # -------------------------
 
 async def remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_CHAT_ID:
-        return await update.message.reply_text("Je bent geen admin.")
+        return await update.message.reply_text("You are not an admin.")
 
     if len(context.args) != 1:
-        return await update.message.reply_text("Gebruik: /remove <chat_id>")
+        return await update.message.reply_text("Usage: /remove <chat_id>")
 
     chat_id_to_remove = int(context.args[0])
 
     approved = load_list(APPROVED_FILE)
 
     if chat_id_to_remove not in approved:
-        return await update.message.reply_text("Dit ID staat niet in de lijst.")
+        return await update.message.reply_text("This ID is not in the list.")
 
     approved.remove(chat_id_to_remove)
     save_list(APPROVED_FILE, approved)
 
-    await update.message.reply_text(f"Chat ID {chat_id_to_remove} is verwijderd.")
+    await update.message.reply_text(f"Chat ID {chat_id_to_remove} has been removed.")
 
 
 # -------------------------
