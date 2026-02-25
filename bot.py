@@ -26,6 +26,11 @@ def save_list(filename, data):
         json.dump(data, f)
 
 
+def get_username(update: Update):
+    username = update.effective_user.username
+    return username if username else "No username"
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Welcome to T‑School alerts. Use /register to sign up."
@@ -34,15 +39,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def register(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
+    username = get_username(update)
+
     pending = load_list(PENDING_FILE)
     approved = load_list(APPROVED_FILE)
 
-    if chat_id in approved:
+    # Convert old list format to new dict format if needed
+    if isinstance(pending, list) and pending and isinstance(pending[0], int):
+        pending = [{"chat_id": cid, "username": "Unknown"} for cid in pending]
+
+    if isinstance(approved, list) and approved and isinstance(approved[0], int):
+        approved = [{"chat_id": cid, "username": "Unknown"} for cid in approved]
+
+    # Already approved
+    if any(user["chat_id"] == chat_id for user in approved):
         await update.message.reply_text("You are already approved for T‑School alerts.")
         return
 
-    if chat_id not in pending:
-        pending.append(chat_id)
+    # Add to pending if not already there
+    if not any(user["chat_id"] == chat_id for user in pending):
+        pending.append({"chat_id": chat_id, "username": username})
         save_list(PENDING_FILE, pending)
 
     await update.message.reply_text(
@@ -51,7 +67,7 @@ async def register(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await context.bot.send_message(
         ADMIN_CHAT_ID,
-        f"New registration received:\nChat ID: {chat_id}"
+        f"New registration received:\nChat ID: {chat_id}\nUsername: @{username}"
     )
 
 
@@ -64,18 +80,29 @@ async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     chat_id = int(context.args[0])
+
     pending = load_list(PENDING_FILE)
     approved = load_list(APPROVED_FILE)
 
-    if chat_id in pending:
-        pending.remove(chat_id)
-        if chat_id not in approved:
-            approved.append(chat_id)
+    # Find user in pending
+    user = next((u for u in pending if u["chat_id"] == chat_id), None)
+
+    if user:
+        pending.remove(user)
+
+        if not any(u["chat_id"] == chat_id for u in approved):
+            approved.append(user)
+
         save_list(PENDING_FILE, pending)
         save_list(APPROVED_FILE, approved)
 
-        await update.message.reply_text(f"User {chat_id} has been approved.")
-        await context.bot.send_message(chat_id, "You have been approved for T‑School alerts!")
+        await update.message.reply_text(
+            f"User {chat_id} (@{user['username']}) has been approved."
+        )
+        await context.bot.send_message(
+            chat_id,
+            "You have been approved for T‑School alerts!"
+        )
     else:
         await update.message.reply_text("This user is not in the pending list.")
 
@@ -91,10 +118,14 @@ async def deny(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = int(context.args[0])
     pending = load_list(PENDING_FILE)
 
-    if chat_id in pending:
-        pending.remove(chat_id)
+    user = next((u for u in pending if u["chat_id"] == chat_id), None)
+
+    if user:
+        pending.remove(user)
         save_list(PENDING_FILE, pending)
-        await update.message.reply_text(f"User {chat_id} has been denied.")
+        await update.message.reply_text(
+            f"User {chat_id} (@{user['username']}) has been denied."
+        )
     else:
         await update.message.reply_text("This user is not in the pending list.")
 
@@ -107,16 +138,21 @@ async def list_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
     approved = load_list(APPROVED_FILE)
 
     text = "Pending:\n"
-    text += "\n".join(str(x) for x in pending) or "– none –"
-    text += "\n\nApproved:\n"
-    text += "\n".join(str(x) for x in approved) or "– none –"
+    if pending:
+        for u in pending:
+            text += f"- {u['chat_id']} (@{u['username']})\n"
+    else:
+        text += "– none –\n"
+
+    text += "\nApproved:\n"
+    if approved:
+        for u in approved:
+            text += f"- {u['chat_id']} (@{u['username']})\n"
+    else:
+        text += "– none –"
 
     await update.message.reply_text(text)
 
-
-# -------------------------
-# REMOVE FUNCTION (ENGLISH VERSION)
-# -------------------------
 
 async def remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_CHAT_ID:
@@ -126,21 +162,20 @@ async def remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("Usage: /remove <chat_id>")
 
     chat_id_to_remove = int(context.args[0])
-
     approved = load_list(APPROVED_FILE)
 
-    if chat_id_to_remove not in approved:
+    user = next((u for u in approved if u["chat_id"] == chat_id_to_remove), None)
+
+    if not user:
         return await update.message.reply_text("This ID is not in the list.")
 
-    approved.remove(chat_id_to_remove)
+    approved.remove(user)
     save_list(APPROVED_FILE, approved)
 
-    await update.message.reply_text(f"Chat ID {chat_id_to_remove} has been removed.")
+    await update.message.reply_text(
+        f"Chat ID {chat_id_to_remove} (@{user['username']}) has been removed."
+    )
 
-
-# -------------------------
-# MAIN
-# -------------------------
 
 def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
