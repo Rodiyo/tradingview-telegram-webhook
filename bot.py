@@ -394,11 +394,14 @@ def main():
 
     telegram_app.add_handler(CallbackQueryHandler(handle_callback, pattern="^toggle_"))
 
-    # Start TradingView webhook server in aparte thread
-    threading.Thread(target=start_webhook_server, daemon=True).start()
+    # Start Telegram polling in een thread
+    threading.Thread(target=telegram_app.run_polling, daemon=True).start()
 
-    # Start Telegram polling
-    telegram_app.run_polling()
+    # Start webhook server in de main thread (vereist door Railway)
+    app = web.Application()
+    app.router.add_post("/webhook", handle_tradingview)
+    web.run_app(app, port=8080)
+
 
 
 
