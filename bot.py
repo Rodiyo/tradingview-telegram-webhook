@@ -12,10 +12,13 @@ from telegram.ext import (
     CallbackQueryHandler,
     ContextTypes,
 )
+from aiohttp import web
+import threading
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ADMIN_CHAT_ID = int(os.getenv("CHAT_ID"))
 DATABASE_URL = os.getenv("DATABASE_URL")
+
 
 # -------------------------
 # TRADINGVIEW WEBHOOK SERVER
