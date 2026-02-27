@@ -195,26 +195,27 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     is_admin = (chat_id == ADMIN_CHAT_ID)
 
-    text = (
-        "📘 *T\\-School Alerts – Help*\n\n"
-        "Available commands:\n"
-        "/register \\- Request access to T\\-School alerts\n"
-        "/subscriptions \\- Select which tickers you want to receive alerts for\n"
-        "/help \\- Show this help menu\n\n"
-    )
+   text = (
+    "<b>T‑School Alerts – Help</b>\n\n"
+    "Available commands:<br>"
+    "/register – Request access to T‑School alerts<br>"
+    "/subscriptions – Select which tickers you want to receive alerts for<br>"
+    "/help – Show this help menu<br><br>"
+)
 
     if is_admin:
         text += (
-            "*Admin commands:*\n"
-            "/addticker <symbol> \\- Add a new ticker\n"
-            "/removeticker <symbol> \\- Remove a ticker\n"
-            "/approve <chat_id> \\- Approve a pending user\n"
-            "/deny <chat_id> \\- Deny a pending user\n"
-            "/list \\- Show pending and approved users\n"
-            "/remove <chat_id> \\- Remove an approved user\n"
-        )
+    "<b>Admin commands:</b><br>"
+    "/addticker &lt;symbol&gt;<br>"
+    "/removeticker &lt;symbol&gt;<br>"
+    "/approve &lt;chat_id&gt;<br>"
+    "/deny &lt;chat_id&gt;<br>"
+    "/list<br>"
+    "/remove &lt;chat_id&gt;<br>"
+)
 
-    await update.message.reply_text(text, parse_mode="MarkdownV2")
+
+    await update.message.reply_text(text, parse_mode="HTML")
 
 
 
