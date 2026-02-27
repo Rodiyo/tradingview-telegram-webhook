@@ -214,11 +214,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "/remove &lt;chat_id&gt; – Remove an approved user<br>"
         )
 
-    await update.message.reply_text(text, parse_mode="HTML")
-
-
-    await update.message.reply_text(text, parse_mode="HTML")
-
+      await update.message.reply_text(text, parse_mode="HTML")
 
 
 # -------------------------
