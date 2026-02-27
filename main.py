@@ -73,3 +73,8 @@ async def webhook(request: Request):
                 pass
 
     return {"status": "sent_filtered", "ticker": ticker}
+
+import uvicorn
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
