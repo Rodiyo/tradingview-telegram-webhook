@@ -1,5 +1,6 @@
 import os
-import json
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from telegram import (
     Update,
     InlineKeyboardButton,
@@ -14,31 +15,51 @@ from telegram.ext import (
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ADMIN_CHAT_ID = int(os.getenv("CHAT_ID"))
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-PENDING_FILE = "pending.json"
-APPROVED_FILE = "approved.json"
-TICKERS_FILE = "tickers.json"
-SUBSCRIPTIONS_FILE = "subscriptions.json"
+# -------------------------
+# DATABASE CONNECTIE
+# -------------------------
+
+conn = psycopg2.connect(DATABASE_URL)
+conn.autocommit = True
+cur = conn.cursor(cursor_factory=RealDictCursor)
+
+# -------------------------
+# TABELLEN AANMAKEN
+# -------------------------
+
+cur.execute("""
+CREATE TABLE IF NOT EXISTS pending_users (
+    chat_id BIGINT PRIMARY KEY,
+    username TEXT
+);
+""")
+
+cur.execute("""
+CREATE TABLE IF NOT EXISTS approved_users (
+    chat_id BIGINT PRIMARY KEY,
+    username TEXT
+);
+""")
+
+cur.execute("""
+CREATE TABLE IF NOT EXISTS tickers (
+    symbol TEXT PRIMARY KEY
+);
+""")
+
+cur.execute("""
+CREATE TABLE IF NOT EXISTS subscriptions (
+    chat_id BIGINT,
+    symbol TEXT,
+    PRIMARY KEY (chat_id, symbol)
+);
+""")
 
 
 # -------------------------
-# JSON HELPERS
-# -------------------------
-
-def load_json(filename, default):
-    if not os.path.exists(filename):
-        return default
-    with open(filename, "r") as f:
-        return json.load(f)
-
-
-def save_json(filename, data):
-    with open(filename, "w") as f:
-        json.dump(data, f)
-
-
-# -------------------------
-# USERNAME HELPER
+# HELPERS
 # -------------------------
 
 def get_username(update: Update):
@@ -46,8 +67,13 @@ def get_username(update: Update):
     return username if username else "No username"
 
 
+def is_approved(chat_id: int):
+    cur.execute("SELECT 1 FROM approved_users WHERE chat_id = %s", (chat_id,))
+    return cur.fetchone() is not None
+
+
 # -------------------------
-# BASIC COMMANDS
+# COMMANDS
 # -------------------------
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -60,22 +86,18 @@ async def register(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     username = get_username(update)
 
-    pending = load_json(PENDING_FILE, [])
-    approved = load_json(APPROVED_FILE, [])
+    # Check approved
+    cur.execute("SELECT 1 FROM approved_users WHERE chat_id = %s", (chat_id,))
+    if cur.fetchone():
+        return await update.message.reply_text("You are already approved for T‑School alerts.")
 
-    if pending and isinstance(pending[0], int):
-        pending = [{"chat_id": cid, "username": "Unknown"} for cid in pending]
-
-    if approved and isinstance(approved[0], int):
-        approved = [{"chat_id": cid, "username": "Unknown"} for cid in approved]
-
-    if any(u["chat_id"] == chat_id for u in approved):
-        await update.message.reply_text("You are already approved for T‑School alerts.")
-        return
-
-    if not any(u["chat_id"] == chat_id for u in pending):
-        pending.append({"chat_id": chat_id, "username": username})
-        save_json(PENDING_FILE, pending)
+    # Check pending
+    cur.execute("SELECT 1 FROM pending_users WHERE chat_id = %s", (chat_id,))
+    if not cur.fetchone():
+        cur.execute(
+            "INSERT INTO pending_users (chat_id, username) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+            (chat_id, username)
+        )
 
     await update.message.reply_text(
         "Your registration has been received. An admin will review your request."
@@ -95,28 +117,26 @@ async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("Usage: /approve <chat_id>")
 
     chat_id = int(context.args[0])
-    pending = load_json(PENDING_FILE, [])
-    approved = load_json(APPROVED_FILE, [])
 
-    user = next((u for u in pending if u["chat_id"] == chat_id), None)
+    cur.execute("SELECT * FROM pending_users WHERE chat_id = %s", (chat_id,))
+    user = cur.fetchone()
 
-    if user:
-        pending.remove(user)
-        if not any(u["chat_id"] == chat_id for u in approved):
-            approved.append(user)
+    if not user:
+        return await update.message.reply_text("This user is not in the pending list.")
 
-        save_json(PENDING_FILE, pending)
-        save_json(APPROVED_FILE, approved)
+    cur.execute("DELETE FROM pending_users WHERE chat_id = %s", (chat_id,))
+    cur.execute(
+        "INSERT INTO approved_users (chat_id, username) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+        (chat_id, user["username"])
+    )
 
-        await update.message.reply_text(
-            f"User {chat_id} (@{user['username']}) has been approved."
-        )
-        await context.bot.send_message(
-            chat_id,
-            "You have been approved for T‑School alerts!"
-        )
-    else:
-        await update.message.reply_text("This user is not in the pending list.")
+    await update.message.reply_text(
+        f"User {chat_id} (@{user['username']}) has been approved."
+    )
+    await context.bot.send_message(
+        chat_id,
+        "You have been approved for T‑School alerts!"
+    )
 
 
 async def deny(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -127,26 +147,27 @@ async def deny(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("Usage: /deny <chat_id>")
 
     chat_id = int(context.args[0])
-    pending = load_json(PENDING_FILE, [])
 
-    user = next((u for u in pending if u["chat_id"] == chat_id), None)
+    cur.execute("DELETE FROM pending_users WHERE chat_id = %s RETURNING username", (chat_id,))
+    user = cur.fetchone()
 
-    if user:
-        pending.remove(user)
-        save_json(PENDING_FILE, pending)
-        await update.message.reply_text(
-            f"User {chat_id} (@{user['username']}) has been denied."
-        )
-    else:
-        await update.message.reply_text("This user is not in the pending list.")
+    if not user:
+        return await update.message.reply_text("This user is not in the pending list.")
+
+    await update.message.reply_text(
+        f"User {chat_id} (@{user['username']}) has been denied."
+    )
 
 
 async def list_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != ADMIN_CHAT_ID:
         return
 
-    pending = load_json(PENDING_FILE, [])
-    approved = load_json(APPROVED_FILE, [])
+    cur.execute("SELECT * FROM pending_users")
+    pending = cur.fetchall()
+
+    cur.execute("SELECT * FROM approved_users")
+    approved = cur.fetchall()
 
     text = "Pending:\n"
     if pending:
@@ -166,31 +187,24 @@ async def list_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_CHAT_ID:
-        return await update.message.reply_text("You are not an admin.")
+    if update.effective_chat.id != ADMIN_CHAT_ID:
+        return
 
     if len(context.args) != 1:
         return await update.message.reply_text("Usage: /remove <chat_id>")
 
     chat_id = int(context.args[0])
-    approved = load_json(APPROVED_FILE, [])
 
-    user = next((u for u in approved if u["chat_id"] == chat_id), None)
+    cur.execute("DELETE FROM approved_users WHERE chat_id = %s RETURNING username", (chat_id,))
+    user = cur.fetchone()
 
     if not user:
         return await update.message.reply_text("This ID is not in the list.")
-
-    approved.remove(user)
-    save_json(APPROVED_FILE, approved)
 
     await update.message.reply_text(
         f"Chat ID {chat_id} (@{user['username']}) has been removed."
     )
 
-
-# -------------------------
-# HELP COMMAND
-# -------------------------
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -219,67 +233,58 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # -------------------------
-# TICKER ADMIN COMMANDS
+# TICKERS
 # -------------------------
 
 async def add_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_CHAT_ID:
+    if update.effective_chat.id != ADMIN_CHAT_ID:
         return await update.message.reply_text("You are not an admin.")
 
     if len(context.args) != 1:
         return await update.message.reply_text("Usage: /addticker <symbol>")
 
     symbol = context.args[0].upper()
-    tickers = load_json(TICKERS_FILE, [])
 
-    if symbol in tickers:
-        return await update.message.reply_text("Ticker already exists.")
-
-    tickers.append(symbol)
-    save_json(TICKERS_FILE, tickers)
-
+    cur.execute("INSERT INTO tickers (symbol) VALUES (%s) ON CONFLICT DO NOTHING", (symbol,))
     await update.message.reply_text(f"Ticker {symbol} added.")
 
 
 async def remove_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_CHAT_ID:
+    if update.effective_chat.id != ADMIN_CHAT_ID:
         return await update.message.reply_text("You are not an admin.")
 
     if len(context.args) != 1:
         return await update.message.reply_text("Usage: /removeticker <symbol>")
 
     symbol = context.args[0].upper()
-    tickers = load_json(TICKERS_FILE, [])
 
-    if symbol not in tickers:
+    cur.execute("DELETE FROM tickers WHERE symbol = %s RETURNING symbol", (symbol,))
+    if not cur.fetchone():
         return await update.message.reply_text("Ticker not found.")
-
-    tickers.remove(symbol)
-    save_json(TICKERS_FILE, tickers)
 
     await update.message.reply_text(f"Ticker {symbol} removed.")
 
 
 # -------------------------
-# USER SUBSCRIPTIONS MENU
+# SUBSCRIPTIONS
 # -------------------------
 
 async def subscriptions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    approved = load_json(APPROVED_FILE, [])
 
-    if not any(u["chat_id"] == chat_id for u in approved):
+    if not is_approved(chat_id):
         return await update.message.reply_text("You are not approved.")
 
-    tickers = load_json(TICKERS_FILE, [])
-    subs = load_json(SUBSCRIPTIONS_FILE, {})
+    cur.execute("SELECT symbol FROM tickers")
+    tickers = [row["symbol"] for row in cur.fetchall()]
 
-    user_subs = subs.get(str(chat_id), [])
+    cur.execute("SELECT symbol FROM subscriptions WHERE chat_id = %s", (chat_id,))
+    user_subs = [row["symbol"] for row in cur.fetchall()]
 
     keyboard = []
     row = []
 
-    for i, t in enumerate(tickers):
+    for t in tickers:
         label = f"✓ {t}" if t in user_subs else t
         row.append(InlineKeyboardButton(label, callback_data=f"toggle_{t}"))
 
@@ -296,10 +301,6 @@ async def subscriptions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# -------------------------
-# CALLBACK HANDLER
-# -------------------------
-
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -310,19 +311,26 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not data.startswith("toggle_"):
         return
 
-    ticker = data.replace("toggle_", "")
-    subs = load_json(SUBSCRIPTIONS_FILE, {})
-    user_subs = subs.get(str(chat_id), [])
+    symbol = data.replace("toggle_", "")
 
-    if ticker in user_subs:
-        user_subs.remove(ticker)
-        await query.edit_message_text(f"You unsubscribed from {ticker}.")
+    cur.execute(
+        "SELECT 1 FROM subscriptions WHERE chat_id = %s AND symbol = %s",
+        (chat_id, symbol)
+    )
+    exists = cur.fetchone()
+
+    if exists:
+        cur.execute(
+            "DELETE FROM subscriptions WHERE chat_id = %s AND symbol = %s",
+            (chat_id, symbol)
+        )
+        await query.edit_message_text(f"You unsubscribed from {symbol}.")
     else:
-        user_subs.append(ticker)
-        await query.edit_message_text(f"You subscribed to {ticker}.")
-
-    subs[str(chat_id)] = user_subs
-    save_json(SUBSCRIPTIONS_FILE, subs)
+        cur.execute(
+            "INSERT INTO subscriptions (chat_id, symbol) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+            (chat_id, symbol)
+        )
+        await query.edit_message_text(f"You subscribed to {symbol}.")
 
 
 # -------------------------
