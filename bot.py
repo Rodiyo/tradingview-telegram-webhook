@@ -344,7 +344,7 @@ def main():
     app.add_handler(CommandHandler("removeticker", remove_ticker))
     app.add_handler(CommandHandler("subscriptions", subscriptions))
 
-    app.add_handler(CallbackQueryHandler(handle_callback))
+    app.add_handler(CallbackQueryHandler(handle_callback, pattern="^SUB_"))
 
     app.run_polling()
 
