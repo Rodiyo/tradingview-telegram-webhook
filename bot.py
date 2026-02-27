@@ -195,24 +195,26 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     is_admin = (chat_id == ADMIN_CHAT_ID)
 
-   text = (
-    "<b>T‑School Alerts – Help</b>\n\n"
-    "Available commands:<br>"
-    "/register – Request access to T‑School alerts<br>"
-    "/subscriptions – Select which tickers you want to receive alerts for<br>"
-    "/help – Show this help menu<br><br>"
-)
+    text = (
+        "<b>T‑School Alerts – Help</b><br><br>"
+        "Available commands:<br>"
+        "/register – Request access to T‑School alerts<br>"
+        "/subscriptions – Select which tickers you want to receive alerts for<br>"
+        "/help – Show this help menu<br><br>"
+    )
 
     if is_admin:
         text += (
-    "<b>Admin commands:</b><br>"
-    "/addticker &lt;symbol&gt;<br>"
-    "/removeticker &lt;symbol&gt;<br>"
-    "/approve &lt;chat_id&gt;<br>"
-    "/deny &lt;chat_id&gt;<br>"
-    "/list<br>"
-    "/remove &lt;chat_id&gt;<br>"
-)
+            "<b>Admin commands:</b><br>"
+            "/addticker &lt;symbol&gt; – Add a new ticker<br>"
+            "/removeticker &lt;symbol&gt; – Remove a ticker<br>"
+            "/approve &lt;chat_id&gt; – Approve a pending user<br>"
+            "/deny &lt;chat_id&gt; – Deny a pending user<br>"
+            "/list – Show pending and approved users<br>"
+            "/remove &lt;chat_id&gt; – Remove an approved user<br>"
+        )
+
+    await update.message.reply_text(text, parse_mode="HTML")
 
 
     await update.message.reply_text(text, parse_mode="HTML")
