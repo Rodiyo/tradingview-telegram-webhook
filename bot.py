@@ -333,7 +333,8 @@ def main():
     app.add_handler(CommandHandler("deny", deny))
     app.add_handler(CommandHandler("list", list_members))
     app.add_handler(CommandHandler("remove", remove))
-
+    app.add_handler(CommandHandler("help", help_command))
+    
     # NEW TICKER COMMANDS
     app.add_handler(CommandHandler("addticker", add_ticker))
     app.add_handler(CommandHandler("removeticker", remove_ticker))
