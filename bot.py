@@ -18,6 +18,42 @@ ADMIN_CHAT_ID = int(os.getenv("CHAT_ID"))
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 # -------------------------
+# TRADINGVIEW WEBHOOK SERVER
+# -------------------------
+
+async def handle_tradingview(request):
+    try:
+        data = await request.json()
+    except:
+        return web.Response(text="Invalid JSON", status=400)
+
+    ticker = data.get("ticker")
+    message = data.get("message", "")
+
+    if not ticker:
+        return web.Response(text="Missing ticker", status=400)
+
+    cur.execute("SELECT chat_id FROM subscriptions WHERE symbol = %s", (ticker,))
+    subscribers = [row["chat_id"] for row in cur.fetchall()]
+
+    for chat_id in subscribers:
+        try:
+            await telegram_app.bot.send_message(
+                chat_id,
+                f"📈 Alert voor {ticker}:\n{message}"
+            )
+        except Exception as e:
+            print(f"Failed to send message to {chat_id}: {e}")
+
+    return web.Response(text="OK", status=200)
+
+
+def start_webhook_server():
+    app = web.Application()
+    app.router.add_post("/webhook", handle_tradingview)
+    web.run_app(app, port=8080)
+
+# -------------------------
 # DATABASE CONNECTIE
 # -------------------------
 
