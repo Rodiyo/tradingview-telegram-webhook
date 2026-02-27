@@ -63,19 +63,16 @@ async def register(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pending = load_json(PENDING_FILE, [])
     approved = load_json(APPROVED_FILE, [])
 
-    # Convert old list format to new dict format if needed
     if pending and isinstance(pending[0], int):
         pending = [{"chat_id": cid, "username": "Unknown"} for cid in pending]
 
     if approved and isinstance(approved[0], int):
         approved = [{"chat_id": cid, "username": "Unknown"} for cid in approved]
 
-    # Already approved
     if any(u["chat_id"] == chat_id for u in approved):
         await update.message.reply_text("You are already approved for T‑School alerts.")
         return
 
-    # Add to pending
     if not any(u["chat_id"] == chat_id for u in pending):
         pending.append({"chat_id": chat_id, "username": username})
         save_json(PENDING_FILE, pending)
@@ -191,6 +188,10 @@ async def remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+# -------------------------
+# HELP COMMAND
+# -------------------------
+
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     is_admin = (chat_id == ADMIN_CHAT_ID)
@@ -215,7 +216,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     await update.message.reply_text(text, parse_mode="HTML")
-
 
 
 # -------------------------
@@ -339,13 +339,11 @@ def main():
     app.add_handler(CommandHandler("list", list_members))
     app.add_handler(CommandHandler("remove", remove))
     app.add_handler(CommandHandler("help", help_command))
-    
-    # NEW TICKER COMMANDS
+
     app.add_handler(CommandHandler("addticker", add_ticker))
     app.add_handler(CommandHandler("removeticker", remove_ticker))
     app.add_handler(CommandHandler("subscriptions", subscriptions))
 
-    # CALLBACK HANDLER
     app.add_handler(CallbackQueryHandler(handle_callback))
 
     app.run_polling()
