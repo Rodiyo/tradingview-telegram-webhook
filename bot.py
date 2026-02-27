@@ -191,6 +191,28 @@ async def remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    is_admin = (chat_id == ADMIN_CHAT_ID)
+
+    text = "📘 *T‑School Alerts – Help*\n\n"
+    text += "Available commands:\n\n"
+    text += "/register – Request access to T‑School alerts\n"
+    text += "/subscriptions – Select which tickers you want to receive alerts for\n"
+    text += "/help – Show this help menu\n\n"
+
+    if is_admin:
+        text += "*Admin commands:*\n"
+        text += "/addticker <symbol> – Add a new ticker to the system\n"
+        text += "/removeticker <symbol> – Remove a ticker\n"
+        text += "/approve <chat_id> – Approve a pending user\n"
+        text += "/deny <chat_id> – Deny a pending user\n"
+        text += "/list – Show pending and approved users\n"
+        text += "/remove <chat_id> – Remove an approved user\n"
+
+    await update.message.reply_text(text, parse_mode="Markdown")
+
+
 # -------------------------
 # TICKER ADMIN COMMANDS
 # -------------------------
