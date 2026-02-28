@@ -378,6 +378,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # -------------------------
 # MAIN
 # -------------------------
+def start_polling():
+    import asyncio
+    asyncio.run(telegram_app.run_polling())
 
 def main():
     global telegram_app
@@ -398,7 +401,7 @@ def main():
     telegram_app.add_handler(CallbackQueryHandler(handle_callback, pattern="^toggle_"))
 
     # Start Telegram polling in een thread
-    threading.Thread(target=telegram_app.run_polling, daemon=True).start()
+    threading.Thread(target=start_polling, daemon=True).start()
 
     # Start webhook server in de main thread (vereist door Railway)
     app = web.Application()
