@@ -25,40 +25,66 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 # -------------------------
 
 from telegram import Update
+from aiohttp import web
+from psycopg2.extras import RealDictCursor
 
 async def handle_tradingview(request):
     try:
         data = await request.json()
-    except:
+    except Exception as e:
+        print("Invalid JSON ontvangen:", e)
         return web.Response(text="Invalid JSON", status=400)
+
+    print("Webhook ontvangen:", data, "type:", type(data))
 
     # --- TELEGRAM UPDATE? ---
     if isinstance(data, dict) and ("message" in data or "callback_query" in data):
-        update = Update.de_json(data, telegram_app.bot)
-        await telegram_app.update_queue.put(update)
-        return web.Response(text="OK", status=200)
+        try:
+            update = Update.de_json(data, telegram_app.bot)
+            await telegram_app.update_queue.put(update)
+            return web.Response(text="OK", status=200)
+        except Exception as e:
+            print("Fout bij verwerken Telegram update:", e)
+            return web.Response(text="Telegram error", status=500)
 
     # --- TRADINGVIEW ALERT? ---
-    ticker = data.get("ticker")
-    message = data.get("message", "")
+    try:
+        ticker = data.get("ticker")
+        message = data.get("message", "")
 
-    if not ticker:
-        return web.Response(text="Missing ticker", status=400)
+        print("TradingView payload:", data)
+        print("Ticker:", ticker)
 
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
-        cur.execute("SELECT chat_id FROM subscriptions WHERE symbol = %s", (ticker,))
-        subscribers = [row["chat_id"] for row in cur.fetchall()]
+        if not ticker:
+            return web.Response(text="Missing ticker", status=400)
 
-    for chat_id in subscribers:
+        # Database query
         try:
-            await telegram_app.bot.send_message(
-                chat_id,
-                f"📈 Alert voor {ticker}:\n{message}"
-            )
-        except Exception as e:
-            print(f"Failed to send message to {chat_id}: {e}")
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT chat_id FROM subscriptions WHERE symbol = %s", (ticker,))
+                subscribers = [row["chat_id"] for row in cur.fetchall()]
+        except Exception as db_err:
+            print("Database fout:", db_err)
+            return web.Response(text="Database error", status=500)
 
-    return web.Response(text="OK", status=200)
+        print("Subscribers gevonden:", subscribers)
+
+        # Verstuur alerts
+        for chat_id in subscribers:
+            try:
+                await telegram_app.bot.send_message(
+                    chat_id,
+                    f"📈 Alert voor {ticker}:\n{message}"
+                )
+            except Exception as e:
+                print(f"Fout bij versturen naar {chat_id}:", e)
+
+        return web.Response(text="OK", status=200)
+
+    except Exception as e:
+        print("Onverwachte fout in TradingView handler:", e)
+        return web.Response(text="Internal error", status=500)
+
 
 # -------------------------
 # DATABASE CONNECTIE
