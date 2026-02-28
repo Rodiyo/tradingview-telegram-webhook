@@ -38,19 +38,18 @@ async def handle_tradingview(request):
     print("Webhook ontvangen:", data, "type:", type(data))
 
     # --- TELEGRAM UPDATE? ---
-if isinstance(data, dict) and (
-    "update_id" in data or
-    isinstance(data.get("message"), dict) or
-    "callback_query" in data
-):
-    try:
-        update = Update.de_json(data, telegram_app.bot)
-        await telegram_app.update_queue.put(update)
-        return web.Response(text="OK", status=200)
-    except Exception as e:
-        print("Fout bij verwerken Telegram update:", e)
-        return web.Response(text="Telegram error", status=500)
-
+    if isinstance(data, dict) and (
+        "update_id" in data or
+        isinstance(data.get("message"), dict) or
+        "callback_query" in data
+    ):
+        try:
+            update = Update.de_json(data, telegram_app.bot)
+            await telegram_app.update_queue.put(update)
+            return web.Response(text="OK", status=200)
+        except Exception as e:
+            print("Fout bij verwerken Telegram update:", e)
+            return web.Response(text="Telegram error", status=500)
 
     # --- TRADINGVIEW ALERT? ---
     try:
