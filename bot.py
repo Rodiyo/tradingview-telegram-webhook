@@ -117,11 +117,12 @@ def is_approved(chat_id: int):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-    "<b>Welcome to T‑School alerts.</b>\n"
-    "Use /register to sign up.\n"
-    "/subscriptions – Select which tickers you want to receive alerts for.",
-    parse_mode="HTML"
-)
+        "<b>Welcome to T‑School alerts.</b>\n"
+        "Use /register to sign up.\n"
+        "/subscriptions – Select which tickers you want to receive alerts for.",
+        parse_mode="HTML"
+    )
+
 
 async def register(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
