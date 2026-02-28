@@ -90,6 +90,45 @@ async def handle_tradingview(request):
         return web.Response(text="Internal error", status=500)
 
 
+    # --- TRADINGVIEW ALERT? ---
+    try:
+        ticker = data.get("ticker")
+        message = data.get("message", "")
+
+        print("TradingView payload:", data)
+        print("Ticker:", ticker)
+
+        if not ticker:
+            return web.Response(text="Missing ticker", status=400)
+
+        # Database query
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT chat_id FROM subscriptions WHERE symbol = %s", (ticker,))
+                subscribers = [row["chat_id"] for row in cur.fetchall()]
+        except Exception as db_err:
+            print("Database fout:", db_err)
+            return web.Response(text="Database error", status=500)
+
+        print("Subscribers gevonden:", subscribers)
+
+        # Verstuur alerts
+        for chat_id in subscribers:
+            try:
+                await telegram_app.bot.send_message(
+                    chat_id,
+                    f"📈 Alert voor {ticker}:\n{message}"
+                )
+            except Exception as e:
+                print(f"Fout bij versturen naar {chat_id}:", e)
+
+        return web.Response(text="OK", status=200)
+
+    except Exception as e:
+        print("Onverwachte fout in TradingView handler:", e)
+        return web.Response(text="Internal error", status=500)
+
+
 # -------------------------
 # DATABASE CONNECTIE
 # -------------------------
