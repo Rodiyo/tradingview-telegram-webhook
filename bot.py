@@ -382,7 +382,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # -------------------------
 # MAIN
 # -------------------------
-def main():
+import asyncio
+
+async def main():
     global telegram_app
     telegram_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
@@ -400,13 +402,23 @@ def main():
 
     telegram_app.add_handler(CallbackQueryHandler(handle_callback, pattern="^toggle_"))
 
+    # --- START TELEGRAM BOT (webhook mode) ---
+    await telegram_app.initialize()
+    await telegram_app.start()
 
-    # Start webhook server in de main thread (vereist door Railway)
+    # --- START WEBHOOK SERVER ---
     app = web.Application()
     app.router.add_post("/webhook", handle_tradingview)
-    web.run_app(app, port=8080)
 
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", 8080)
+    await site.start()
+
+    # Houd de app draaiend
+    await asyncio.Event().wait()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
+
