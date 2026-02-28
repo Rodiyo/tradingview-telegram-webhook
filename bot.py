@@ -13,20 +13,15 @@ from telegram.ext import (
     ContextTypes,
 )
 from aiohttp import web
-import threading
+import asyncio
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ADMIN_CHAT_ID = int(os.getenv("CHAT_ID"))
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-
 # -------------------------
 # TRADINGVIEW WEBHOOK SERVER
 # -------------------------
-
-from telegram import Update
-from aiohttp import web
-from psycopg2.extras import RealDictCursor
 
 async def handle_tradingview(request):
     try:
@@ -50,45 +45,6 @@ async def handle_tradingview(request):
         except Exception as e:
             print("Fout bij verwerken Telegram update:", e)
             return web.Response(text="Telegram error", status=500)
-
-    # --- TRADINGVIEW ALERT? ---
-    try:
-        ticker = data.get("ticker")
-        message = data.get("message", "")
-
-        print("TradingView payload:", data)
-        print("Ticker:", ticker)
-
-        if not ticker:
-            return web.Response(text="Missing ticker", status=400)
-
-        # Database query
-        try:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("SELECT chat_id FROM subscriptions WHERE symbol = %s", (ticker,))
-                subscribers = [row["chat_id"] for row in cur.fetchall()]
-        except Exception as db_err:
-            print("Database fout:", db_err)
-            return web.Response(text="Database error", status=500)
-
-        print("Subscribers gevonden:", subscribers)
-
-        # Verstuur alerts
-        for chat_id in subscribers:
-            try:
-                await telegram_app.bot.send_message(
-                    chat_id,
-                    f"📈 Alert voor {ticker}:\n{message}"
-                )
-            except Exception as e:
-                print(f"Fout bij versturen naar {chat_id}:", e)
-
-        return web.Response(text="OK", status=200)
-
-    except Exception as e:
-        print("Onverwachte fout in TradingView handler:", e)
-        return web.Response(text="Internal error", status=500)
-
 
     # --- TRADINGVIEW ALERT? ---
     try:
@@ -169,7 +125,6 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 );
 """)
 
-
 # -------------------------
 # HELPERS
 # -------------------------
@@ -178,11 +133,9 @@ def get_username(update: Update):
     username = update.effective_user.username
     return username if username else "No username"
 
-
 def is_approved(chat_id: int):
     cur.execute("SELECT 1 FROM approved_users WHERE chat_id = %s", (chat_id,))
     return cur.fetchone() is not None
-
 
 # -------------------------
 # COMMANDS
@@ -196,17 +149,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="HTML"
     )
 
-
 async def register(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     username = get_username(update)
 
-    # Check approved
     cur.execute("SELECT 1 FROM approved_users WHERE chat_id = %s", (chat_id,))
     if cur.fetchone():
         return await update.message.reply_text("You are already approved for T‑School alerts.")
 
-    # Check pending
     cur.execute("SELECT 1 FROM pending_users WHERE chat_id = %s", (chat_id,))
     if not cur.fetchone():
         cur.execute(
@@ -222,7 +172,6 @@ async def register(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ADMIN_CHAT_ID,
         f"New registration received:\nChat ID: {chat_id}\nUsername: @{username}"
     )
-
 
 async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != ADMIN_CHAT_ID:
@@ -253,7 +202,6 @@ async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "You have been approved for T‑School alerts!"
     )
 
-
 async def deny(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != ADMIN_CHAT_ID:
         return
@@ -272,7 +220,6 @@ async def deny(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"User {chat_id} (@{user['username']}) has been denied."
     )
-
 
 async def list_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != ADMIN_CHAT_ID:
@@ -300,7 +247,6 @@ async def list_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(text)
 
-
 async def remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != ADMIN_CHAT_ID:
         return
@@ -319,7 +265,6 @@ async def remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"Chat ID {chat_id} (@{user['username']}) has been removed."
     )
-
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -346,7 +291,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(text, parse_mode="HTML")
 
-
 # -------------------------
 # TICKERS
 # -------------------------
@@ -363,7 +307,6 @@ async def add_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cur.execute("INSERT INTO tickers (symbol) VALUES (%s) ON CONFLICT DO NOTHING", (symbol,))
     await update.message.reply_text(f"Ticker {symbol} added.")
 
-
 async def remove_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != ADMIN_CHAT_ID:
         return await update.message.reply_text("You are not an admin.")
@@ -378,7 +321,6 @@ async def remove_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("Ticker not found.")
 
     await update.message.reply_text(f"Ticker {symbol} removed.")
-
 
 # -------------------------
 # SUBSCRIPTIONS
@@ -415,7 +357,6 @@ async def subscriptions(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -447,11 +388,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await query.edit_message_text(f"You subscribed to {symbol}.")
 
-
 # -------------------------
 # MAIN
 # -------------------------
-import asyncio
 
 async def main():
     global telegram_app
@@ -484,10 +423,7 @@ async def main():
     site = web.TCPSite(runner, "0.0.0.0", 8080)
     await site.start()
 
-    # Houd de app draaiend
     await asyncio.Event().wait()
-
 
 if __name__ == "__main__":
     asyncio.run(main())
-
