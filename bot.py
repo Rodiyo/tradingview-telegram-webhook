@@ -32,12 +32,11 @@ async def handle_tradingview(request):
     except:
         return web.Response(text="Invalid JSON", status=400)
 
-   # --- TELEGRAM UPDATE? ---
-if isinstance(data, dict) and ("message" in data or "callback_query" in data):
-    update = Update.de_json(data, telegram_app.bot)
-    await telegram_app.update_queue.put(update)
-    return web.Response(text="OK", status=200)
-
+    # --- TELEGRAM UPDATE? ---
+    if isinstance(data, dict) and ("message" in data or "callback_query" in data):
+        update = Update.de_json(data, telegram_app.bot)
+        await telegram_app.update_queue.put(update)
+        return web.Response(text="OK", status=200)
 
     # --- TRADINGVIEW ALERT? ---
     ticker = data.get("ticker")
@@ -60,6 +59,7 @@ if isinstance(data, dict) and ("message" in data or "callback_query" in data):
             print(f"Failed to send message to {chat_id}: {e}")
 
     return web.Response(text="OK", status=200)
+
 
 
     # --- TRADINGVIEW ALERT? ---
