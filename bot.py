@@ -33,10 +33,33 @@ async def handle_tradingview(request):
         return web.Response(text="Invalid JSON", status=400)
 
     # --- TELEGRAM UPDATE? ---
-    if "message" in data or "callback_query" in data:
+    if isinstance(data, dict) and ("message" in data or "callback_query" in data):
         update = Update.de_json(data, telegram_app.bot)
         await telegram_app.update_queue.put(update)
         return web.Response(text="OK", status=200)
+
+    # --- TRADINGVIEW ALERT? ---
+    ticker = data.get("ticker")
+    message = data.get("message", "")
+
+    if not ticker:
+        return web.Response(text="Missing ticker", status=400)
+
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute("SELECT chat_id FROM subscriptions WHERE symbol = %s", (ticker,))
+        subscribers = [row["chat_id"] for row in cur.fetchall()]
+
+    for chat_id in subscribers:
+        try:
+            await telegram_app.bot.send_message(
+                chat_id,
+                f"📈 Alert voor {ticker}:\n{message}"
+            )
+        except Exception as e:
+            print(f"Failed to send message to {chat_id}: {e}")
+
+    return web.Response(text="OK", status=200)
+
 
     # --- TRADINGVIEW ALERT? ---
     ticker = data.get("ticker")
