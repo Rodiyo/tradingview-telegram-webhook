@@ -24,12 +24,21 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 # TRADINGVIEW WEBHOOK SERVER
 # -------------------------
 
+from telegram import Update
+
 async def handle_tradingview(request):
     try:
         data = await request.json()
     except:
         return web.Response(text="Invalid JSON", status=400)
 
+    # --- TELEGRAM UPDATE? ---
+    if "message" in data or "callback_query" in data:
+        update = Update.de_json(data, telegram_app.bot)
+        await telegram_app.update_queue.put(update)
+        return web.Response(text="OK", status=200)
+
+    # --- TRADINGVIEW ALERT? ---
     ticker = data.get("ticker")
     message = data.get("message", "")
 
@@ -50,11 +59,6 @@ async def handle_tradingview(request):
 
     return web.Response(text="OK", status=200)
 
-
-def start_webhook_server():
-    app = web.Application()
-    app.router.add_post("/webhook", handle_tradingview)
-    web.run_app(app, port=8080)
 
 # -------------------------
 # DATABASE CONNECTIE
