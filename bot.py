@@ -57,7 +57,27 @@ async def handle_tradingview(request):
         if not ticker:
             return web.Response(text="Missing ticker", status=400)
 
-        # Database query
+        # --- DUPLICATE SIGNAL CHECK ---
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT last_signal FROM last_signals WHERE symbol = %s", (ticker,))
+                row = cur.fetchone()
+
+                if row and row["last_signal"] == message:
+                    print(f"Signaal voor {ticker} is hetzelfde ({message}), niet versturen.")
+                    return web.Response(text="Duplicate ignored", status=200)
+
+                # Nieuw signaal opslaan
+                cur.execute("""
+                    INSERT INTO last_signals (symbol, last_signal)
+                    VALUES (%s, %s)
+                    ON CONFLICT (symbol) DO UPDATE SET last_signal = EXCLUDED.last_signal
+                """, (ticker, message))
+        except Exception as e:
+            print("Database fout bij duplicate check:", e)
+            return web.Response(text="Database error", status=500)
+
+        # --- SUBSCRIBERS OPHALEN ---
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("SELECT chat_id FROM subscriptions WHERE symbol = %s", (ticker,))
@@ -68,7 +88,7 @@ async def handle_tradingview(request):
 
         print("Subscribers gevonden:", subscribers)
 
-        # Verstuur alerts
+        # --- ALERT VERSTUREN ---
         for chat_id in subscribers:
             try:
                 await telegram_app.bot.send_message(
@@ -122,6 +142,13 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     chat_id BIGINT,
     symbol TEXT,
     PRIMARY KEY (chat_id, symbol)
+);
+""")
+
+cur.execute("""
+CREATE TABLE IF NOT EXISTS last_signals (
+    symbol TEXT PRIMARY KEY,
+    last_signal TEXT
 );
 """)
 
