@@ -593,6 +593,7 @@ async def main():
 
     await telegram_app.initialize()
     await telegram_app.start()
+    await telegram_app.updater.start()
       
     # Keep running forever
     await asyncio.Event().wait()
