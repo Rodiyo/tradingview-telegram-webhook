@@ -576,7 +576,7 @@ async def main():
     # -------------------------
 
     app = web.Application()
-    app.router.add_post("/", handle_tradingview)app.router.add_post("/webhook", handle_tradingview)
+    app.router.add_post("/webhook", handle_tradingview)
 
     runner = web.AppRunner(app)
     await runner.setup()
