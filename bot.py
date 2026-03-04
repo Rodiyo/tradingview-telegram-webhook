@@ -14,10 +14,13 @@ from telegram.ext import (
 )
 from aiohttp import web
 import asyncio
+from datetime import datetime, timedelta
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ADMIN_CHAT_ID = int(os.getenv("CHAT_ID"))
 DATABASE_URL = os.getenv("DATABASE_URL")
+
+COOLDOWN_MINUTES = 5  # cooldown na ping‑pong patroon
 
 # -------------------------
 # TRADINGVIEW WEBHOOK SERVER
@@ -57,6 +60,34 @@ async def handle_tradingview(request):
         if not ticker:
             return web.Response(text="Missing ticker", status=400)
 
+        now = datetime.utcnow()
+
+        # --- PATROON + COOLDOWN STATE OPHALEN ---
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT last_signal, second_last_signal, cooldown_until
+                    FROM signal_state
+                    WHERE symbol = %s
+                """, (ticker,))
+                state = cur.fetchone() or {
+                    "last_signal": None,
+                    "second_last_signal": None,
+                    "cooldown_until": None,
+                }
+
+                last_signal = state["last_signal"]
+                second_last_signal = state["second_last_signal"]
+                cooldown_until = state["cooldown_until"]
+
+                # Actieve cooldown?
+                if cooldown_until and now < cooldown_until:
+                    print(f"Cooldown actief voor {ticker} tot {cooldown_until}, signaal genegeerd.")
+                    return web.Response(text="Cooldown active", status=200)
+        except Exception as e:
+            print("Fout bij ophalen signal_state:", e)
+            return web.Response(text="State error", status=500)
+
         # --- DUPLICATE SIGNAL CHECK ---
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -65,9 +96,10 @@ async def handle_tradingview(request):
 
                 if row and row["last_signal"] == message:
                     print(f"Signaal voor {ticker} is hetzelfde ({message}), niet versturen.")
+                    # We updaten hier NIET de patroon‑state, want het is exact hetzelfde signaal
                     return web.Response(text="Duplicate ignored", status=200)
 
-                # Nieuw signaal opslaan
+                # Nieuw signaal opslaan in last_signals
                 cur.execute("""
                     INSERT INTO last_signals (symbol, last_signal)
                     VALUES (%s, %s)
@@ -76,6 +108,39 @@ async def handle_tradingview(request):
         except Exception as e:
             print("Database fout bij duplicate check:", e)
             return web.Response(text="Database error", status=500)
+
+        # --- PATROONDETECTIE: A → B → A (ping‑pong) ---
+        # second_last_signal = A, last_signal = B, new message = A
+        pattern_detected = (
+            second_last_signal is not None
+            and last_signal is not None
+            and second_last_signal == message
+            and last_signal != message
+        )
+
+        new_cooldown_until = cooldown_until
+        if pattern_detected:
+            new_cooldown_until = now + timedelta(minutes=COOLDOWN_MINUTES)
+            print(
+                f"Ping‑pong patroon gedetecteerd voor {ticker} "
+                f"({second_last_signal} → {last_signal} → {message}), "
+                f"cooldown tot {new_cooldown_until}"
+            )
+
+        # --- STATE UPDATEN (altijd bij nieuw signaal) ---
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    INSERT INTO signal_state (symbol, last_signal, second_last_signal, cooldown_until)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (symbol) DO UPDATE
+                    SET last_signal = EXCLUDED.last_signal,
+                        second_last_signal = EXCLUDED.second_last_signal,
+                        cooldown_until = EXCLUDED.cooldown_until
+                """, (ticker, message, last_signal, new_cooldown_until))
+        except Exception as e:
+            print("Fout bij updaten signal_state:", e)
+            return web.Response(text="State update error", status=500)
 
         # --- SUBSCRIBERS OPHALEN ---
         try:
@@ -149,6 +214,15 @@ cur.execute("""
 CREATE TABLE IF NOT EXISTS last_signals (
     symbol TEXT PRIMARY KEY,
     last_signal TEXT
+);
+""")
+
+cur.execute("""
+CREATE TABLE IF NOT EXISTS signal_state (
+    symbol TEXT PRIMARY KEY,
+    last_signal TEXT,
+    second_last_signal TEXT,
+    cooldown_until TIMESTAMP
 );
 """)
 
