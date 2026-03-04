@@ -16,159 +16,16 @@ from aiohttp import web
 import asyncio
 from datetime import datetime, timedelta
 
+# -------------------------
+# CONFIG
+# -------------------------
+
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ADMIN_CHAT_ID = int(os.getenv("CHAT_ID"))
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-COOLDOWN_MINUTES = 5  # cooldown na ping‑pong patroon
-
-# -------------------------
-# TRADINGVIEW WEBHOOK SERVER
-# -------------------------
-
-async def handle_tradingview(request):
-    try:
-        data = await request.json()
-    except Exception as e:
-        print("Invalid JSON ontvangen:", e)
-        return web.Response(text="Invalid JSON", status=400)
-
-    print("Webhook ontvangen:", data, "type:", type(data))
-
-    # --- TELEGRAM UPDATE? ---
-    if isinstance(data, dict) and (
-        "update_id" in data or
-        isinstance(data.get("message"), dict) or
-        "callback_query" in data
-    ):
-        try:
-            update = Update.de_json(data, telegram_app.bot)
-            await telegram_app.update_queue.put(update)
-            return web.Response(text="OK", status=200)
-        except Exception as e:
-            print("Fout bij verwerken Telegram update:", e)
-            return web.Response(text="Telegram error", status=500)
-
-    # --- TRADINGVIEW ALERT? ---
-    try:
-        ticker = data.get("ticker")
-        message = data.get("message", "")
-
-        print("TradingView payload:", data)
-        print("Ticker:", ticker)
-
-        if not ticker:
-            return web.Response(text="Missing ticker", status=400)
-
-        now = datetime.utcnow()
-
-        # --- PATROON + COOLDOWN STATE OPHALEN ---
-        try:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("""
-                    SELECT last_signal, second_last_signal, cooldown_until
-                    FROM signal_state
-                    WHERE symbol = %s
-                """, (ticker,))
-                state = cur.fetchone() or {
-                    "last_signal": None,
-                    "second_last_signal": None,
-                    "cooldown_until": None,
-                }
-
-                last_signal = state["last_signal"]
-                second_last_signal = state["second_last_signal"]
-                cooldown_until = state["cooldown_until"]
-
-                # Actieve cooldown?
-                if cooldown_until and now < cooldown_until:
-                    print(f"Cooldown actief voor {ticker} tot {cooldown_until}, signaal genegeerd.")
-                    return web.Response(text="Cooldown active", status=200)
-        except Exception as e:
-            print("Fout bij ophalen signal_state:", e)
-            return web.Response(text="State error", status=500)
-
-        # --- DUPLICATE SIGNAL CHECK ---
-        try:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("SELECT last_signal FROM last_signals WHERE symbol = %s", (ticker,))
-                row = cur.fetchone()
-
-                if row and row["last_signal"] == message:
-                    print(f"Signaal voor {ticker} is hetzelfde ({message}), niet versturen.")
-                    # We updaten hier NIET de patroon‑state, want het is exact hetzelfde signaal
-                    return web.Response(text="Duplicate ignored", status=200)
-
-                # Nieuw signaal opslaan in last_signals
-                cur.execute("""
-                    INSERT INTO last_signals (symbol, last_signal)
-                    VALUES (%s, %s)
-                    ON CONFLICT (symbol) DO UPDATE SET last_signal = EXCLUDED.last_signal
-                """, (ticker, message))
-        except Exception as e:
-            print("Database fout bij duplicate check:", e)
-            return web.Response(text="Database error", status=500)
-
-        # --- PATROONDETECTIE: A → B → A (ping‑pong) ---
-        # second_last_signal = A, last_signal = B, new message = A
-        pattern_detected = (
-            second_last_signal is not None
-            and last_signal is not None
-            and second_last_signal == message
-            and last_signal != message
-        )
-
-        new_cooldown_until = cooldown_until
-        if pattern_detected:
-            new_cooldown_until = now + timedelta(minutes=COOLDOWN_MINUTES)
-            print(
-                f"Ping‑pong patroon gedetecteerd voor {ticker} "
-                f"({second_last_signal} → {last_signal} → {message}), "
-                f"cooldown tot {new_cooldown_until}"
-            )
-
-        # --- STATE UPDATEN (altijd bij nieuw signaal) ---
-        try:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("""
-                    INSERT INTO signal_state (symbol, last_signal, second_last_signal, cooldown_until)
-                    VALUES (%s, %s, %s, %s)
-                    ON CONFLICT (symbol) DO UPDATE
-                    SET last_signal = EXCLUDED.last_signal,
-                        second_last_signal = EXCLUDED.second_last_signal,
-                        cooldown_until = EXCLUDED.cooldown_until
-                """, (ticker, message, last_signal, new_cooldown_until))
-        except Exception as e:
-            print("Fout bij updaten signal_state:", e)
-            return web.Response(text="State update error", status=500)
-
-        # --- SUBSCRIBERS OPHALEN ---
-        try:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("SELECT chat_id FROM subscriptions WHERE symbol = %s", (ticker,))
-                subscribers = [row["chat_id"] for row in cur.fetchall()]
-        except Exception as db_err:
-            print("Database fout:", db_err)
-            return web.Response(text="Database error", status=500)
-
-        print("Subscribers gevonden:", subscribers)
-
-        # --- ALERT VERSTUREN ---
-        for chat_id in subscribers:
-            try:
-                await telegram_app.bot.send_message(
-                    chat_id,
-                    f"📈 Alert voor {ticker}:\n{message}"
-                )
-            except Exception as e:
-                print(f"Fout bij versturen naar {chat_id}:", e)
-
-        return web.Response(text="OK", status=200)
-
-    except Exception as e:
-        print("Onverwachte fout in TradingView handler:", e)
-        return web.Response(text="Internal error", status=500)
-
+WHIPSAW_WINDOW_MINUTES = 10
+COOLDOWN_MINUTES = 10
 
 # -------------------------
 # DATABASE CONNECTIE
@@ -220,19 +77,224 @@ CREATE TABLE IF NOT EXISTS last_signals (
 cur.execute("""
 CREATE TABLE IF NOT EXISTS signal_state (
     symbol TEXT PRIMARY KEY,
-    last_signal TEXT,
-    second_last_signal TEXT,
+    signal_1 TEXT,
+    time_1 TIMESTAMP,
+    signal_2 TEXT,
+    time_2 TIMESTAMP,
+    signal_3 TEXT,
+    time_3 TIMESTAMP,
+    signal_4 TEXT,
+    time_4 TIMESTAMP,
     cooldown_until TIMESTAMP
 );
 """)
+# -------------------------
+# TRADINGVIEW WEBHOOK HANDLER
+# -------------------------
 
+async def handle_tradingview(request):
+    try:
+        data = await request.json()
+    except:
+        return web.Response(text="Invalid JSON", status=400)
+
+    # -----------------------------------------
+    # 1. TELEGRAM UPDATE? (webhook passthrough)
+    # -----------------------------------------
+    if isinstance(data, dict) and (
+        "update_id" in data or
+        isinstance(data.get("message"), dict) or
+        "callback_query" in data
+    ):
+        try:
+            update = Update.de_json(data, telegram_app.bot)
+            await telegram_app.update_queue.put(update)
+            return web.Response(text="OK", status=200)
+        except:
+            return web.Response(text="Telegram error", status=500)
+
+    # -----------------------------------------
+    # 2. TRADINGVIEW ALERT
+    # -----------------------------------------
+    ticker = data.get("ticker")
+    message = data.get("message", "")
+
+    if not ticker:
+        return web.Response(text="Missing ticker", status=400)
+
+    now = datetime.utcnow()
+
+    # -----------------------------------------
+    # 3. STATE OPHALEN
+    # -----------------------------------------
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT signal_1, time_1,
+                       signal_2, time_2,
+                       signal_3, time_3,
+                       signal_4, time_4,
+                       cooldown_until
+                FROM signal_state
+                WHERE symbol = %s
+            """, (ticker,))
+            row = cur.fetchone()
+
+            if not row:
+                row = {
+                    "signal_1": None, "time_1": None,
+                    "signal_2": None, "time_2": None,
+                    "signal_3": None, "time_3": None,
+                    "signal_4": None, "time_4": None,
+                    "cooldown_until": None
+                }
+
+            s1, t1 = row["signal_1"], row["time_1"]
+            s2, t2 = row["signal_2"], row["time_2"]
+            s3, t3 = row["signal_3"], row["time_3"]
+            s4, t4 = row["signal_4"], row["time_4"]
+            cooldown_until = row["cooldown_until"]
+
+    except Exception as e:
+        print("State read error:", e)
+        return web.Response(text="State error", status=500)
+
+    # -----------------------------------------
+    # 4. ACTIEVE COOLDOWN?
+    # -----------------------------------------
+    if cooldown_until and now < cooldown_until:
+        print(f"[{ticker}] Cooldown actief tot {cooldown_until}, signaal genegeerd.")
+        return web.Response(text="Cooldown active", status=200)
+
+    # -----------------------------------------
+    # 5. DUPLICATE FILTER
+    # -----------------------------------------
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT last_signal FROM last_signals WHERE symbol = %s", (ticker,))
+            row_dup = cur.fetchone()
+
+            if row_dup and row_dup["last_signal"] == message:
+                print(f"[{ticker}] Duplicate signaal ({message}), genegeerd.")
+                return web.Response(text="Duplicate ignored", status=200)
+
+            cur.execute("""
+                INSERT INTO last_signals (symbol, last_signal)
+                VALUES (%s, %s)
+                ON CONFLICT (symbol) DO UPDATE SET last_signal = EXCLUDED.last_signal
+            """, (ticker, message))
+
+    except Exception as e:
+        print("Duplicate check error:", e)
+        return web.Response(text="Duplicate error", status=500)
+
+    # -----------------------------------------
+    # 6. WHIPSAW DETECTIE (A-B-A-B)
+    # -----------------------------------------
+    whipsaw_detected = False
+
+    if s4 and s3 and s2:
+        # patroon: s4=A, s3=B, s2=A, new=B
+        if s4 == s2 and s3 != s4 and message == s3:
+            if t4 and (now - t4) < timedelta(minutes=WHIPSAW_WINDOW_MINUTES):
+                whipsaw_detected = True
+                print(f"[{ticker}] WHIPSAW A-B-A-B gedetecteerd.")
+
+    # -----------------------------------------
+    # 7. RESET BIJ C
+    # -----------------------------------------
+    if s4 and s3:
+        A = s4
+        B = s3
+        if message != A and message != B:
+            print(f"[{ticker}] Nieuw signaal C → volledige reset.")
+            s1 = s2 = s3 = s4 = None
+            t1 = t2 = t3 = t4 = None
+            cooldown_until = None
+
+    # -----------------------------------------
+    # 8. NIEUWE STATE SCHUIVEN
+    # -----------------------------------------
+    s4, t4 = s3, t3
+    s3, t3 = s2, t2
+    s2, t2 = s1, t1
+    s1, t1 = message, now
+
+    # -----------------------------------------
+    # 9. COOLDOWN ACTIVEREN (maar signaal nog versturen)
+    # -----------------------------------------
+    if whipsaw_detected:
+        cooldown_until = now + timedelta(minutes=COOLDOWN_MINUTES)
+        print(f"[{ticker}] Cooldown geactiveerd tot {cooldown_until}")
+
+    # -----------------------------------------
+    # 10. STATE OPSLAAN
+    # -----------------------------------------
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO signal_state (
+                    symbol,
+                    signal_1, time_1,
+                    signal_2, time_2,
+                    signal_3, time_3,
+                    signal_4, time_4,
+                    cooldown_until
+                )
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (symbol) DO UPDATE SET
+                    signal_1 = EXCLUDED.signal_1,
+                    time_1 = EXCLUDED.time_1,
+                    signal_2 = EXCLUDED.signal_2,
+                    time_2 = EXCLUDED.time_2,
+                    signal_3 = EXCLUDED.signal_3,
+                    time_3 = EXCLUDED.time_3,
+                    signal_4 = EXCLUDED.signal_4,
+                    time_4 = EXCLUDED.time_4,
+                    cooldown_until = EXCLUDED.cooldown_until
+            """, (
+                ticker,
+                s1, t1,
+                s2, t2,
+                s3, t3,
+                s4, t4,
+                cooldown_until
+            ))
+    except Exception as e:
+        print("State save error:", e)
+        return web.Response(text="State save error", status=500)
+
+    # -----------------------------------------
+    # 11. SUBSCRIBERS OPHALEN
+    # -----------------------------------------
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT chat_id FROM subscriptions WHERE symbol = %s", (ticker,))
+            subscribers = [row["chat_id"] for row in cur.fetchall()]
+    except Exception as e:
+        print("Subscription read error:", e)
+        return web.Response(text="Database error", status=500)
+
+    # -----------------------------------------
+    # 12. ALERT VERSTUREN
+    # -----------------------------------------
+    for chat_id in subscribers:
+        try:
+            await telegram_app.bot.send_message(
+                chat_id,
+                f"📈 Alert voor {ticker}:\n{message}"
+            )
+        except Exception as e:
+            print(f"Send error to {chat_id}:", e)
+
+    return web.Response(text="OK", status=200)
 # -------------------------
 # HELPERS
 # -------------------------
 
 def get_username(update: Update):
     username = update.effective_user.username
-    return username if username else "No username"
+    return username if username else "NoUsername"
 
 def is_approved(chat_id: int):
     cur.execute("SELECT 1 FROM approved_users WHERE chat_id = %s", (chat_id,))
@@ -245,8 +307,8 @@ def is_approved(chat_id: int):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "<b>Welcome to T‑School alerts.</b>\n"
-        "Use /register to sign up.\n"
-        "/subscriptions – Select which tickers you want to receive alerts for.",
+        "Use /register to request access.\n"
+        "Use /subscriptions to manage your tickers.",
         parse_mode="HTML"
     )
 
@@ -254,31 +316,32 @@ async def register(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     username = get_username(update)
 
+    # Already approved?
     cur.execute("SELECT 1 FROM approved_users WHERE chat_id = %s", (chat_id,))
     if cur.fetchone():
-        return await update.message.reply_text("You are already approved for T‑School alerts.")
+        return await update.message.reply_text("You are already approved.")
 
+    # Already pending?
     cur.execute("SELECT 1 FROM pending_users WHERE chat_id = %s", (chat_id,))
     if not cur.fetchone():
-        cur.execute(
-            "INSERT INTO pending_users (chat_id, username) VALUES (%s, %s) ON CONFLICT DO NOTHING",
-            (chat_id, username)
-        )
+        cur.execute("""
+            INSERT INTO pending_users (chat_id, username)
+            VALUES (%s, %s)
+            ON CONFLICT DO NOTHING
+        """, (chat_id, username))
 
-    await update.message.reply_text(
-        "Your registration has been received. An admin will review your request."
-    )
+    await update.message.reply_text("Your registration request has been submitted.")
 
     await context.bot.send_message(
         ADMIN_CHAT_ID,
-        f"New registration received:\nChat ID: {chat_id}\nUsername: @{username}"
+        f"New registration:\nChat ID: {chat_id}\nUsername: @{username}"
     )
 
 async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != ADMIN_CHAT_ID:
         return
 
-    if len(context.args) == 0:
+    if len(context.args) != 1:
         return await update.message.reply_text("Usage: /approve <chat_id>")
 
     chat_id = int(context.args[0])
@@ -287,27 +350,23 @@ async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = cur.fetchone()
 
     if not user:
-        return await update.message.reply_text("This user is not in the pending list.")
+        return await update.message.reply_text("User not found in pending list.")
 
     cur.execute("DELETE FROM pending_users WHERE chat_id = %s", (chat_id,))
-    cur.execute(
-        "INSERT INTO approved_users (chat_id, username) VALUES (%s, %s) ON CONFLICT DO NOTHING",
-        (chat_id, user["username"])
-    )
+    cur.execute("""
+        INSERT INTO approved_users (chat_id, username)
+        VALUES (%s, %s)
+        ON CONFLICT DO NOTHING
+    """, (chat_id, user["username"]))
 
-    await update.message.reply_text(
-        f"User {chat_id} (@{user['username']}) has been approved."
-    )
-    await context.bot.send_message(
-        chat_id,
-        "You have been approved for T‑School alerts!"
-    )
+    await update.message.reply_text(f"Approved @{user['username']} ({chat_id}).")
+    await context.bot.send_message(chat_id, "You have been approved for T‑School alerts!")
 
 async def deny(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != ADMIN_CHAT_ID:
         return
 
-    if len(context.args) == 0:
+    if len(context.args) != 1:
         return await update.message.reply_text("Usage: /deny <chat_id>")
 
     chat_id = int(context.args[0])
@@ -316,11 +375,9 @@ async def deny(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = cur.fetchone()
 
     if not user:
-        return await update.message.reply_text("This user is not in the pending list.")
+        return await update.message.reply_text("User not found in pending list.")
 
-    await update.message.reply_text(
-        f"User {chat_id} (@{user['username']}) has been denied."
-    )
+    await update.message.reply_text(f"Denied @{user['username']} ({chat_id}).")
 
 async def list_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != ADMIN_CHAT_ID:
@@ -332,21 +389,21 @@ async def list_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cur.execute("SELECT * FROM approved_users")
     approved = cur.fetchall()
 
-    text = "Pending:\n"
+    text = "<b>Pending users:</b>\n"
     if pending:
         for u in pending:
             text += f"- {u['chat_id']} (@{u['username']})\n"
     else:
         text += "– none –\n"
 
-    text += "\nApproved:\n"
+    text += "\n<b>Approved users:</b>\n"
     if approved:
         for u in approved:
             text += f"- {u['chat_id']} (@{u['username']})\n"
     else:
         text += "– none –"
 
-    await update.message.reply_text(text)
+    await update.message.reply_text(text, parse_mode="HTML")
 
 async def remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != ADMIN_CHAT_ID:
@@ -361,39 +418,11 @@ async def remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = cur.fetchone()
 
     if not user:
-        return await update.message.reply_text("This ID is not in the list.")
+        return await update.message.reply_text("User not found.")
 
-    await update.message.reply_text(
-        f"Chat ID {chat_id} (@{user['username']}) has been removed."
-    )
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    is_admin = (chat_id == ADMIN_CHAT_ID)
-
-    text = (
-        "<b>T‑School Alerts – Help</b>\n\n"
-        "Available commands:\n"
-        "/register – Request access to T‑School alerts\n"
-        "/subscriptions – Select which tickers you want to receive alerts for\n"
-        "/help – Show this help menu\n"
-    )
-
-    if is_admin:
-        text += (
-            "\n<b>Admin commands:</b>\n"
-            "/addticker <symbol> – Add a new ticker\n"
-            "/removeticker <symbol> – Remove a ticker\n"
-            "/approve <chat_id> – Approve a pending user\n"
-            "/deny <chat_id> – Deny a pending user\n"
-            "/list – Show pending and approved users\n"
-            "/remove <chat_id> – Remove an approved user\n"
-        )
-
-    await update.message.reply_text(text, parse_mode="HTML")
-
+    await update.message.reply_text(f"Removed @{user['username']} ({chat_id}).")
 # -------------------------
-# TICKERS
+# TICKER MANAGEMENT
 # -------------------------
 
 async def add_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -405,8 +434,14 @@ async def add_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     symbol = context.args[0].upper()
 
-    cur.execute("INSERT INTO tickers (symbol) VALUES (%s) ON CONFLICT DO NOTHING", (symbol,))
+    cur.execute("""
+        INSERT INTO tickers (symbol)
+        VALUES (%s)
+        ON CONFLICT DO NOTHING
+    """, (symbol,))
+
     await update.message.reply_text(f"Ticker {symbol} added.")
+
 
 async def remove_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != ADMIN_CHAT_ID:
@@ -418,33 +453,36 @@ async def remove_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     symbol = context.args[0].upper()
 
     cur.execute("DELETE FROM tickers WHERE symbol = %s RETURNING symbol", (symbol,))
-    if not cur.fetchone():
+    deleted = cur.fetchone()
+
+    if not deleted:
         return await update.message.reply_text("Ticker not found.")
 
     await update.message.reply_text(f"Ticker {symbol} removed.")
 
+
 # -------------------------
-# SUBSCRIPTIONS
+# SUBSCRIPTIONS MENU
 # -------------------------
 
 async def subscriptions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
 
     if not is_approved(chat_id):
-        return await update.message.reply_text("You are not approved.")
+        return await update.message.reply_text("You are not approved to use this bot.")
 
-    cur.execute("SELECT symbol FROM tickers")
-    tickers = [row["symbol"] for row in cur.fetchall()]
+    cur.execute("SELECT symbol FROM tickers ORDER BY symbol ASC")
+    all_tickers = [row["symbol"] for row in cur.fetchall()]
 
     cur.execute("SELECT symbol FROM subscriptions WHERE chat_id = %s", (chat_id,))
-    user_subs = [row["symbol"] for row in cur.fetchall()]
+    user_subs = {row["symbol"] for row in cur.fetchall()}
 
     keyboard = []
     row = []
 
-    for t in tickers:
-        label = f"✓ {t}" if t in user_subs else t
-        row.append(InlineKeyboardButton(label, callback_data=f"toggle_{t}"))
+    for symbol in all_tickers:
+        label = f"✅ {symbol}" if symbol in user_subs else f"❌ {symbol}"
+        row.append(InlineKeyboardButton(label, callback_data=f"toggle:{symbol}"))
 
         if len(row) == 2:
             keyboard.append(row)
@@ -454,77 +492,100 @@ async def subscriptions(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append(row)
 
     await update.message.reply_text(
-        "Select the tickers you want to receive:",
+        "Select the tickers you want to receive alerts for:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+
+
+# -------------------------
+# CALLBACK HANDLER
+# -------------------------
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    chat_id = query.from_user.id
+    chat_id = query.message.chat_id
     data = query.data
 
-    if not data.startswith("toggle_"):
+    if not data.startswith("toggle:"):
         return
 
-    symbol = data.replace("toggle_", "")
+    symbol = data.split(":", 1)[1]
 
-    cur.execute(
-        "SELECT 1 FROM subscriptions WHERE chat_id = %s AND symbol = %s",
-        (chat_id, symbol)
-    )
+    cur.execute("""
+        SELECT 1 FROM subscriptions
+        WHERE chat_id = %s AND symbol = %s
+    """, (chat_id, symbol))
     exists = cur.fetchone()
 
     if exists:
-        cur.execute(
-            "DELETE FROM subscriptions WHERE chat_id = %s AND symbol = %s",
-            (chat_id, symbol)
-        )
-        await query.edit_message_text(f"You unsubscribed from {symbol}.")
+        cur.execute("""
+            DELETE FROM subscriptions
+            WHERE chat_id = %s AND symbol = %s
+        """, (chat_id, symbol))
     else:
-        cur.execute(
-            "INSERT INTO subscriptions (chat_id, symbol) VALUES (%s, %s) ON CONFLICT DO NOTHING",
-            (chat_id, symbol)
-        )
-        await query.edit_message_text(f"You subscribed to {symbol}.")
+        cur.execute("""
+            INSERT INTO subscriptions (chat_id, symbol)
+            VALUES (%s, %s)
+            ON CONFLICT DO NOTHING
+        """, (chat_id, symbol))
 
+    await subscriptions(update, context)
 # -------------------------
-# MAIN
+# MAIN + WEBHOOK SERVER
 # -------------------------
 
 async def main():
     global telegram_app
+
     telegram_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
+    # COMMAND HANDLERS
     telegram_app.add_handler(CommandHandler("start", start))
     telegram_app.add_handler(CommandHandler("register", register))
     telegram_app.add_handler(CommandHandler("approve", approve))
     telegram_app.add_handler(CommandHandler("deny", deny))
     telegram_app.add_handler(CommandHandler("list", list_members))
     telegram_app.add_handler(CommandHandler("remove", remove))
-    telegram_app.add_handler(CommandHandler("help", help_command))
-
     telegram_app.add_handler(CommandHandler("addticker", add_ticker))
     telegram_app.add_handler(CommandHandler("removeticker", remove_ticker))
     telegram_app.add_handler(CommandHandler("subscriptions", subscriptions))
 
-    telegram_app.add_handler(CallbackQueryHandler(handle_callback, pattern="^toggle_"))
+    # CALLBACK HANDLER
+    telegram_app.add_handler(CallbackQueryHandler(handle_callback))
 
-    # --- START TELEGRAM BOT (webhook mode) ---
-    await telegram_app.initialize()
-    await telegram_app.start()
+    # -------------------------
+    # AIOHTTP SERVER
+    # -------------------------
 
-    # --- START WEBHOOK SERVER ---
     app = web.Application()
-    app.router.add_post("/webhook", handle_tradingview)
+    app.router.add_post("/", handle_tradingview)
 
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", 8080)
+
+    port = int(os.getenv("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+
+    print(f"Server running on port {port}")
     await site.start()
 
+    # -------------------------
+    # START TELEGRAM BOT
+    # -------------------------
+
+    await telegram_app.initialize()
+    await telegram_app.start()
+    await telegram_app.updater.start_polling()
+
+    # Keep running forever
     await asyncio.Event().wait()
+
+
+# -------------------------
+# ENTRYPOINT
+# -------------------------
 
 if __name__ == "__main__":
     asyncio.run(main())
