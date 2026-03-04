@@ -468,15 +468,22 @@ async def remove_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def subscriptions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
 
+    # Check approval
     if not is_approved(chat_id):
-        return await update.message.reply_text("You are not approved to use this bot.")
+        if update.message:
+            return await update.message.reply_text("You are not approved to use this bot.")
+        else:
+            return await update.callback_query.message.reply_text("You are not approved to use this bot.")
 
+    # Fetch tickers
     cur.execute("SELECT symbol FROM tickers ORDER BY symbol ASC")
     all_tickers = [row["symbol"] for row in cur.fetchall()]
 
+    # Fetch user subscriptions
     cur.execute("SELECT symbol FROM subscriptions WHERE chat_id = %s", (chat_id,))
     user_subs = {row["symbol"] for row in cur.fetchall()}
 
+    # Build keyboard
     keyboard = []
     row = []
 
@@ -491,18 +498,19 @@ async def subscriptions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if row:
         keyboard.append(row)
 
+    # --- Correct handling of message vs callback ---
     if update.message:
-    # Normale command /subscriptions
-    await update.message.reply_text(
-        "Select the tickers you want to receive alerts for:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-else:
-    # Callback button
-    await update.callback_query.message.edit_text(
-        "Select the tickers you want to receive alerts for:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+        # Called via /subscriptions
+        await update.message.reply_text(
+            "Select the tickers you want to receive alerts for:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    else:
+        # Called via callback button
+        await update.callback_query.message.edit_text(
+            "Select the tickers you want to receive alerts for:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
 
 
 # -------------------------
