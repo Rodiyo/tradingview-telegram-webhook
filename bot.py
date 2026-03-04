@@ -567,14 +567,9 @@ async def main():
     telegram_app.add_handler(CommandHandler("addticker", add_ticker))
     telegram_app.add_handler(CommandHandler("removeticker", remove_ticker))
     telegram_app.add_handler(CommandHandler("subscriptions", subscriptions))
-
-    # CALLBACK HANDLER
     telegram_app.add_handler(CallbackQueryHandler(handle_callback))
 
-    # -------------------------
     # AIOHTTP SERVER
-    # -------------------------
-
     app = web.Application()
     app.router.add_post("/webhook", handle_tradingview)
 
@@ -587,16 +582,16 @@ async def main():
     print(f"Server running on port {port}")
     await site.start()
 
-    # -------------------------
-    # START TELEGRAM BOT
-    # -------------------------
-
+    # START TELEGRAM BOT (zonder updater)
     await telegram_app.initialize()
     await telegram_app.start()
-    await telegram_app.updater.start()
-      
+
+    # START DISPATCHER QUEUE WORKER
+    telegram_app.create_task(telegram_app.process_update_queue())
+
     # Keep running forever
     await asyncio.Event().wait()
+
 
 
 # -------------------------
