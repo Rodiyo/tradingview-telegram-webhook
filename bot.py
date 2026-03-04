@@ -491,7 +491,15 @@ async def subscriptions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if row:
         keyboard.append(row)
 
+    if update.message:
+    # Normale command /subscriptions
     await update.message.reply_text(
+        "Select the tickers you want to receive alerts for:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+else:
+    # Callback button
+    await update.callback_query.message.edit_text(
         "Select the tickers you want to receive alerts for:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
