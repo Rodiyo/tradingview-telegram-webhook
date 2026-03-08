@@ -289,10 +289,22 @@ async def handle_tradingview(request):
     # -----------------------------------------
     for chat_id in subscribers:
         try:
-            await telegram_app.bot.send_message(
-                chat_id,
-                f"📈 Alert voor {ticker}:\n{message}"
-            )
+            direction = data.get("direction")
+entry = data.get("entry_price")
+stop = data.get("stoploss_price")
+ts = data.get("timestamp")
+
+text = (
+    f"📈 Alert voor {ticker}:\n"
+    f"{message}\n\n"
+    f"Direction: {direction}\n"
+    f"Entry: {entry}\n"
+    f"Stoploss: {stop}\n"
+    f"Time: {ts}"
+)
+
+await telegram_app.bot.send_message(chat_id, text)
+
         except Exception as e:
             print(f"Send error to {chat_id}:", e)
 
