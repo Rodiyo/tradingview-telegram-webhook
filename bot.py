@@ -92,11 +92,20 @@ CREATE TABLE IF NOT EXISTS signal_state (
 # TRADINGVIEW WEBHOOK HANDLER
 # -------------------------
 
+import json
+
 async def handle_tradingview(request):
     try:
+        # Probeer echte JSON
         data = await request.json()
     except:
-        return web.Response(text="Invalid JSON", status=400)
+        # Fallback: TradingView stuurt vaak text/plain
+        try:
+            raw = await request.text()
+            data = json.loads(raw)
+        except:
+            return web.Response(text="Invalid JSON", status=400)
+
 
     # -----------------------------------------
     # 1. TELEGRAM UPDATE? (webhook passthrough)
