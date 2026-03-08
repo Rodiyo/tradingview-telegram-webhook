@@ -284,10 +284,10 @@ async def handle_tradingview(request):
         print("Subscription read error:", e)
         return web.Response(text="Database error", status=500)
 
-    # -----------------------------------------
-    # 12. ALERT VERSTUREN
-    # -----------------------------------------
-   for chat_id in subscribers:
+  # -----------------------------------------
+# 12. ALERT VERSTUREN
+# -----------------------------------------
+for chat_id in subscribers:
     try:
         direction = data.get("direction")
         entry = data.get("entry_price")
@@ -308,8 +308,8 @@ async def handle_tradingview(request):
     except Exception as e:
         print(f"Send error to {chat_id}:", e)
 
+return web.Response(text="OK", status=200)
 
-    return web.Response(text="OK", status=200)
 # -------------------------
 # HELPERS
 # -------------------------
