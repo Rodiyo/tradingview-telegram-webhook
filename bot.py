@@ -284,31 +284,32 @@ async def handle_tradingview(request):
         print("Subscription read error:", e)
         return web.Response(text="Database error", status=500)
 
-# -----------------------------------------
-# 12. ALERT VERSTUREN
-# -----------------------------------------
-for chat_id in subscribers:
-    try:
-        direction = data.get("direction")
-        entry = data.get("entry_price")
-        stop = data.get("stoploss_price")
-        ts = data.get("timestamp")
+    # -----------------------------------------
+    # 12. ALERT VERSTUREN
+    # -----------------------------------------
+    for chat_id in subscribers:
+        try:
+            direction = data.get("direction")
+            entry = data.get("entry_price")
+            stop = data.get("stoploss_price")
+            ts = data.get("timestamp")
 
-        text = (
-            f"📈 Alert voor {ticker}:\n"
-            f"{message}\n\n"
-            f"Direction: {direction}\n"
-            f"Entry: {entry}\n"
-            f"Stoploss: {stop}\n"
-            f"Time: {ts}"
-        )
+            text = (
+                f"📈 Alert voor {ticker}:\n"
+                f"{message}\n\n"
+                f"Direction: {direction}\n"
+                f"Entry: {entry}\n"
+                f"Stoploss: {stop}\n"
+                f"Time: {ts}"
+            )
 
-        await telegram_app.bot.send_message(chat_id, text)
+            await telegram_app.bot.send_message(chat_id, text)
 
-    except Exception as e:
-        print(f"Send error to {chat_id}:", e)
+        except Exception as e:
+            print(f"Send error to {chat_id}:", e)
 
-return web.Response(text="OK", status=200)
+    return web.Response(text="OK", status=200)
+
 
 
 
