@@ -295,7 +295,7 @@ async def handle_tradingview(request):
 
             # Alerts die géén Entry/SL moeten tonen
             skip_fields = (
-                message.startswith("New Box") or
+                message.startswith("New BOX") or
                 message.startswith("Crossing")
             )
 
