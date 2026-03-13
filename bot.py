@@ -285,38 +285,38 @@ async def handle_tradingview(request):
         return web.Response(text="Database error", status=500)
 
     # -----------------------------------------
-# 12. ALERT VERSTUREN
-# -----------------------------------------
-for chat_id in subscribers:
-    try:
-        direction = data.get("direction")
-        entry = data.get("entry_price")
-        stop = data.get("stoploss_price")
+    # 12. ALERT VERSTUREN
+    # -----------------------------------------
+    for chat_id in subscribers:
+        try:
+            direction = data.get("direction")
+            entry = data.get("entry_price")
+            stop = data.get("stoploss_price")
 
-        # Alerts die géén Entry/SL moeten tonen
-        skip_fields = (
-            message.startswith("New Box") or
-            message.startswith("Crossing")
-        )
-
-        if skip_fields:
-            text = (
-                f"📈 Alert voor {ticker}:\n"
-                f"{message}"
-            )
-        else:
-            text = (
-                f"📈 Alert voor {ticker}:\n"
-                f"{message}\n\n"
-                f"Direction: {direction}\n"
-                f"Entry: {entry}\n"
-                f"Stoploss: {stop}\n"
+            # Alerts die géén Entry/SL moeten tonen
+            skip_fields = (
+                message.startswith("New Box") or
+                message.startswith("Crossing")
             )
 
-        await telegram_app.bot.send_message(chat_id, text)
+            if skip_fields:
+                text = (
+                    f"📈 Alert voor {ticker}:\n"
+                    f"{message}"
+                )
+            else:
+                text = (
+                    f"📈 Alert voor {ticker}:\n"
+                    f"{message}\n\n"
+                    f"Direction: {direction}\n"
+                    f"Entry: {entry}\n"
+                    f"Stoploss: {stop}\n"
+                )
 
-    except Exception as e:
-        print(f"Send error to {chat_id}:", e)
+            await telegram_app.bot.send_message(chat_id, text)
+
+        except Exception as e:
+            print(f"Send error to {chat_id}:", e)
 
 
 # -------------------------
