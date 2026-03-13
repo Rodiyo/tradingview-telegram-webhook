@@ -293,16 +293,19 @@ async def handle_tradingview(request):
             entry = data.get("entry_price")
             stop = data.get("stoploss_price")
 
-skip_fields = (
-    message.startswith("New BOX") or
-    message.startswith("Crossing") or
-    message.startswith("Real Exit") or
-    message.startswith("Real Long") or
-    message.startswith("Real Short") or
-    message.startswith("Long alert") or
-    message.startswith("Short alert") or
-    message.startswith("SL alert")
-)
+            msg = message.lower()
+
+            # Alerts die géén Entry/SL moeten tonen
+            skip_fields = (
+                msg.startswith("new box") or
+                msg.startswith("crossing") or
+                msg.startswith("real exit") or
+                msg.startswith("real long") or
+                msg.startswith("real short") or
+                msg.startswith("long alert") or
+                msg.startswith("short alert") or
+                msg.startswith("sl alert")
+            )
 
             if skip_fields:
                 text = f"📈 Alert voor {ticker}:\n{message}"
@@ -321,7 +324,6 @@ skip_fields = (
             print(f"Send error to {chat_id}:", e)
 
     return web.Response(text="OK", status=200)
-
 
 # -------------------------
 # HELPERS
