@@ -293,13 +293,16 @@ async def handle_tradingview(request):
             entry = data.get("entry_price")
             stop = data.get("stoploss_price")
 
-            skip_fields = (
-                message.startswith("New BOX") or
-                message.startswith("Crossing") or
-                message.startswith("Real Exit") or
-                message.startswith("Real Long") or
-                message.startswith("Real Short")
-            )
+skip_fields = (
+    message.startswith("New BOX") or
+    message.startswith("Crossing") or
+    message.startswith("Real Exit") or
+    message.startswith("Real Long") or
+    message.startswith("Real Short") or
+    message.startswith("Long alert") or
+    message.startswith("Short alert") or
+    message.startswith("SL alert")
+)
 
             if skip_fields:
                 text = f"📈 Alert voor {ticker}:\n{message}"
