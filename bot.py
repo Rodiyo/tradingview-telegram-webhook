@@ -293,11 +293,14 @@ async def handle_tradingview(request):
             entry = data.get("entry_price")
             stop = data.get("stoploss_price")
 
-            # Alerts die géén Entry/SL moeten tonen
-            skip_fields = (
-                message.startswith("New BOX") or
-                message.startswith("Crossing")
-            )
+# Alerts die géén Entry/SL moeten tonen
+skip_fields = (
+    message.startswith("New BOX") or
+    message.startswith("Crossing") or
+    message.startswith("Real Exit") or
+    message.startswith("Real Long") or
+    message.startswith("Real Short")
+)
 
             if skip_fields:
                 text = (
