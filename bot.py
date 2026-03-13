@@ -318,6 +318,7 @@ async def handle_tradingview(request):
         except Exception as e:
             print(f"Send error to {chat_id}:", e)
 
+    return web.Response(text="OK", status=200)
 
 # -------------------------
 # HELPERS
