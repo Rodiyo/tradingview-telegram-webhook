@@ -302,8 +302,8 @@ async def handle_tradingview(request):
                 msg.startswith("real exit") or
                 msg.startswith("real long") or
                 msg.startswith("real short") or
-                msg.startswith("Long_signal") or
-                msg.startswith("Short_signal") or
+                msg.startswith("long_signal") or
+                msg.startswith("short_signal") or
                 msg.startswith("pivot point") or
                 msg.startswith("sl alert")
             )
