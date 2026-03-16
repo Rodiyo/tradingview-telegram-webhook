@@ -305,7 +305,7 @@ async def handle_tradingview(request):
                 msg.startswith("long_signal") or
                 msg.startswith("short_signal") or
                 msg.startswith("pivot point") or
-                msg.startswith("sl alert")
+                msg.startswith("moving avarage")
             )
 
             if skip_fields:
