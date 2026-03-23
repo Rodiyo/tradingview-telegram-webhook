@@ -96,19 +96,16 @@ import json
 
 async def handle_tradingview(request):
     try:
-        # Probeer echte JSON
         data = await request.json()
     except:
-        # Fallback: TradingView stuurt vaak text/plain
         try:
             raw = await request.text()
             data = json.loads(raw)
         except:
             return web.Response(text="Invalid JSON", status=400)
 
-
     # -----------------------------------------
-    # 1. TELEGRAM UPDATE? (webhook passthrough)
+    # 1. TELEGRAM UPDATE?
     # -----------------------------------------
     if isinstance(data, dict) and (
         "update_id" in data or
@@ -169,14 +166,7 @@ async def handle_tradingview(request):
         return web.Response(text="State error", status=500)
 
     # -----------------------------------------
-    # 4. ACTIEVE COOLDOWN?
-    # -----------------------------------------
-    if cooldown_until and now < cooldown_until:
-        print(f"[{ticker}] Cooldown actief tot {cooldown_until}, signaal genegeerd.")
-        return web.Response(text="Cooldown active", status=200)
-
-    # -----------------------------------------
-    # 5. DUPLICATE FILTER
+    # 4. DUPLICATE FILTER MET COOLDOWN
     # -----------------------------------------
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -184,9 +174,14 @@ async def handle_tradingview(request):
             row_dup = cur.fetchone()
 
             if row_dup and row_dup["last_signal"] == message:
-                print(f"[{ticker}] Duplicate signaal ({message}), genegeerd.")
-                return web.Response(text="Duplicate ignored", status=200)
+                # Duplicate binnen cooldown → negeren
+                if cooldown_until and now < cooldown_until:
+                    print(f"[{ticker}] Duplicate binnen cooldown, genegeerd.")
+                    return web.Response(text="Duplicate ignored", status=200)
+                else:
+                    print(f"[{ticker}] Duplicate maar cooldown voorbij → versturen.")
 
+            # Update last_signal
             cur.execute("""
                 INSERT INTO last_signals (symbol, last_signal)
                 VALUES (%s, %s)
@@ -198,19 +193,18 @@ async def handle_tradingview(request):
         return web.Response(text="Duplicate error", status=500)
 
     # -----------------------------------------
-    # 6. WHIPSAW DETECTIE (A-B-A-B)
+    # 5. WHIPSAW DETECTIE
     # -----------------------------------------
     whipsaw_detected = False
 
     if s4 and s3 and s2:
-        # patroon: s4=A, s3=B, s2=A, new=B
         if s4 == s2 and s3 != s4 and message == s3:
             if t4 and (now - t4) < timedelta(minutes=WHIPSAW_WINDOW_MINUTES):
                 whipsaw_detected = True
                 print(f"[{ticker}] WHIPSAW A-B-A-B gedetecteerd.")
 
     # -----------------------------------------
-    # 7. RESET BIJ C
+    # 6. RESET BIJ C
     # -----------------------------------------
     if s4 and s3:
         A = s4
@@ -222,7 +216,7 @@ async def handle_tradingview(request):
             cooldown_until = None
 
     # -----------------------------------------
-    # 8. NIEUWE STATE SCHUIVEN
+    # 7. NIEUWE STATE SCHUIVEN
     # -----------------------------------------
     s4, t4 = s3, t3
     s3, t3 = s2, t2
@@ -230,14 +224,13 @@ async def handle_tradingview(request):
     s1, t1 = message, now
 
     # -----------------------------------------
-    # 9. COOLDOWN ACTIVEREN (maar signaal nog versturen)
+    # 8. ALTIJD COOLDOWN ACTIVEREN
     # -----------------------------------------
-    if whipsaw_detected:
-        cooldown_until = now + timedelta(minutes=COOLDOWN_MINUTES)
-        print(f"[{ticker}] Cooldown geactiveerd tot {cooldown_until}")
+    cooldown_until = now + timedelta(minutes=COOLDOWN_MINUTES)
+    print(f"[{ticker}] Cooldown geactiveerd tot {cooldown_until}")
 
     # -----------------------------------------
-    # 10. STATE OPSLAAN
+    # 9. STATE OPSLAAN
     # -----------------------------------------
     try:
         with conn.cursor() as cur:
@@ -274,7 +267,7 @@ async def handle_tradingview(request):
         return web.Response(text="State save error", status=500)
 
     # -----------------------------------------
-    # 11. SUBSCRIBERS OPHALEN
+    # 10. SUBSCRIBERS OPHALEN
     # -----------------------------------------
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -285,7 +278,7 @@ async def handle_tradingview(request):
         return web.Response(text="Database error", status=500)
 
     # -----------------------------------------
-    # 12. ALERT VERSTUREN
+    # 11. ALERT VERSTUREN
     # -----------------------------------------
     for chat_id in subscribers:
         try:
@@ -295,7 +288,6 @@ async def handle_tradingview(request):
 
             msg = message.lower()
 
-            # Alerts die géén Entry/SL moeten tonen
             skip_fields = (
                 msg.startswith("new box") or
                 msg.startswith("crossing") or
@@ -325,6 +317,7 @@ async def handle_tradingview(request):
             print(f"Send error to {chat_id}:", e)
 
     return web.Response(text="OK", status=200)
+
 
 # -------------------------
 # HELPERS
