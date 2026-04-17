@@ -293,12 +293,15 @@ async def handle_tradingview(request):
                 msg.startswith("crossing") or
                 msg.startswith("real exit") or
                 msg.startswith("real long") or
-                msg.startswith("real short") or
-                msg.startswith("long_signal") or
+                msg.startswith("short") or
+                msg.startswith("long") or
                 msg.startswith("short_signal") or
                 msg.startswith("pivot point") or
-                msg.startswith("moving avarage")
-            )
+                msg.startswith("moving avarage crossing") or
+                msg.startswith("displacement_bear") or
+                msg.startswith("displacement_bull") or
+                msg.startswith("market reversal")
+                          )
 
             if skip_fields:
                 text = f"📈 Alert voor {ticker}:\n{message}"
