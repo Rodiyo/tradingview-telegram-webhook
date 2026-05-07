@@ -300,8 +300,9 @@ async def handle_tradingview(request):
                 msg.startswith("moving avarage crossing") or
                 msg.startswith("displacement_bear") or
                 msg.startswith("displacement_bull") or
-                msg.startswith("market reversal")
-                          )
+                msg.startswith("market reversal") or
+                msg.startswith("trendline")
+                                        )
 
             if skip_fields:
                 text = f"📈 Alert voor {ticker}:\n{message}"
