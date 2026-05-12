@@ -301,6 +301,7 @@ async def handle_tradingview(request):
                 msg.startswith("displacement_bear") or
                 msg.startswith("displacement_bull") or
                 msg.startswith("market reversal") or
+                msg.startswith("divergentie") or
                 msg.startswith("trendline")
                                         )
 
