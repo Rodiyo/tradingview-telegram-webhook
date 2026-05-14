@@ -291,8 +291,8 @@ async def handle_tradingview(request):
             skip_fields = (
                 msg.startswith("new_box") or
                 msg.startswith("crossing") or
-                msg.startswith("real exit") or
-                msg.startswith("real long") or
+                msg.startswith("bear") or
+                msg.startswith("bull") or
                 msg.startswith("short") or
                 msg.startswith("long") or
                 msg.startswith("short_signal") or
