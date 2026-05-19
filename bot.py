@@ -299,7 +299,7 @@ async def handle_tradingview(request):
                 msg.startswith("pivot point") or
                 msg.startswith("moving avarage") or
                 msg.startswith("displacement") or
-                msg.startswith("market reversal") or
+                msg.startswith("imbalance") or
                 msg.startswith("divergentie") or
                 msg.startswith("trendline")
                                         )
